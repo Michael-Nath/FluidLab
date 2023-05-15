@@ -119,7 +119,8 @@ def solve_policy(env, logger, cfg):
     env.reset()
     solver = Solver(env, logger, cfg)
     solver.solve()
-def gen_trajs_from_policy(env, logger, cfg):
+def gen_trajs_from_policy(env, logger, cfg, n_trajs):
     env.reset()
     solver = Solver(env, logger, cfg)
-    solver.create_trajs(3)
+    for i in range(n_trajs):
+        solver.create_trajs(i + 1)

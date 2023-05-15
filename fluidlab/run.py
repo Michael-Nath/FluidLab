@@ -17,15 +17,16 @@ def get_args():
     parser.add_argument("--exp_name", type=str, default='exp_latteart')
     parser.add_argument("--env_name", type=str, default='')
     parser.add_argument("--seed", type=int, default=0)
-    parser.add_argument("--cfg_file", type=str, default=None)
+    parser.add_argument("--cfg_file", type=str, default='configs/exp_latteart.yaml')
     parser.add_argument("--record", action='store_true')
     parser.add_argument("--user_input", action='store_true')
     parser.add_argument("--replay_policy", action='store_true')
     parser.add_argument("--replay_target", action='store_true')
     parser.add_argument("--path", type=str, default=None)
     parser.add_argument("--renderer_type", type=str, default='GGUI')
-    parser.add_argument("--gen_trajs", action="store_true")
-
+    parser.add_argument("--gen_trajs", action="store_true", default=True)
+    parser.add_argument("--n_trajs", type=int, default=1)
+    parser.add_argument("--out_ds", type=str, default="trajs.hdf5")
 
     args = parser.parse_args()
 
@@ -62,8 +63,8 @@ def main():
             env = gym.make(cfg.EXP.env_name, seed=cfg.EXP.seed, loss=False, loss_type="diff", renderer_type=args.renderer_type)
         else:
             env = gym.make(args.env_name, seed=args.seed, loss=False, loss_type="diff", renderer_type=args.renderer_type)
-        logger = Logger(args.exp_name)
-        gen_trajs_from_policy(env, logger, cfg.SOLVER)
+        logger = Logger(args.exp_name, args.out_ds)
+        gen_trajs_from_policy(env, logger, cfg.SOLVER, args.n_trajs)
     else:
         logger = Logger(args.exp_name)
         env = gym.make(cfg.EXP.env_name, seed=cfg.EXP.seed, loss=True, loss_type='diff', renderer_type=args.renderer_type)
