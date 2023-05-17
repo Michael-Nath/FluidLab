@@ -33,7 +33,7 @@ class TrajectoryWriter:
         self.exp_name = exp_name
         self.dir_name = os.path.join(get_src_dir(), '..', self.trajs_fname)
     def write(self, action, sim_state, img_obs, iteration: int, t: int):
-        with h5py.File(self.dir_name, "a", driver="family") as f: 
+        with h5py.File(self.dir_name,"r+", driver="family") as f: 
             g = f.require_group(self.exp_name)
             traj = g.require_group("traj" + str(iteration))
             traj.pop("t_{t:04d}", None)
