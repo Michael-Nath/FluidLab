@@ -1,5 +1,6 @@
 import os
 import cv2
+from datetime import datetime
 import numpy as np
 import taichi as ti
 from fluidlab.utils.misc import is_on_server
@@ -119,7 +120,9 @@ def solve_policy(env, logger, cfg):
     env.reset()
     solver = Solver(env, logger, cfg)
     solver.solve()
-def gen_trajs_from_policy(env, logger, cfg):
-    env.reset()
-    solver = Solver(env, logger, cfg)
-    solver.create_trajs(3)
+def gen_trajs_from_policy(env, logger, cfg, n_trajs):
+    for i in range(n_trajs):
+        env.reset()
+        solver = Solver(env, logger, cfg)
+        solver.create_trajs(i + 1)
+        print(f"Finished creating trajectory {i + 1} at {datetime.now().strftime('%H:%M:%S')}")
