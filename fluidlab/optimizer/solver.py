@@ -22,7 +22,9 @@ class Solver:
         init_state = taichi_env.get_state()
         taichi_env.set_state(**init_state)
         taichi_env.apply_agent_action_p(policy.get_actions_p())
-
+        action_matrix = []
+        sim_state_matrix = []
+        img_obs_matrix = []
         for i in range(horizon):
             if i < horizon_action:
                 action = policy.get_action_v(i, agent=taichi_env.agent, update=True)
@@ -31,9 +33,11 @@ class Solver:
             sim_state = self.env.taichi_env.get_state_RL() 
             img = taichi_env.render('rgb_array')
             taichi_env.step(action)
-            self.logger.write_traj(action, sim_state, img, iteration, i)
-            #img = taichi_env.render('rgb_array')
+            action_matrix.append(action if action is not None else [0] * self.env )
+            sim_state_matrix.append(sim_state)
+            img_obs_matrix.append(img)
             self.logger.write_img(img, iteration, i)
+        self.logger.write_traj(np.array(action_matrix), np.array(sim_state_matrix), np.array(img_obs_matrix), iteration, i)
 
     def solve(self):
         taichi_env = self.env.taichi_env
