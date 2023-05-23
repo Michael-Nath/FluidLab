@@ -135,6 +135,8 @@ dmypy.json
 
 # We don't want trajectory images to clog up the repo.
 *tmp/
-trajs*
+data/
+launch_files/
+slurm_logs
 # Ignore debug folder
 .vscode/
