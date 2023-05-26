@@ -58,10 +58,11 @@ class TrajectoryDataset(Dataset):
         img_obs_matrix = []
         action_matrix = []
         sim_state_matrix = []
-        for tstep in traj.keys():
-           img_obs_matrix.append(traj[tstep]["img_obs"][:])
-        # img_obs_matrix.append(traj["t_0000"]["img_obs"][:])
-        img_obs_matrix = torch.Tensor(np.array(img_obs_matrix))
+        # pick a random timestep
+        tstep = np.random.choice(list(traj.keys()))
+        img_obs_matrix = traj[tstep]["img_obs"][:]
+        img_obs_matrix = np.transpose(img_obs_matrix, (2, 0, 1))
+        img_obs_matrix = torch.Tensor(img_obs_matrix)
         action_matrix = torch.Tensor(np.array(action_matrix))
         sim_state_matrix = torch.Tensor(np.array(sim_state_matrix))
         return img_obs_matrix, action_matrix, sim_state_matrix
