@@ -5,10 +5,10 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
-import torchvision
 import torchvision.transforms as transforms
 from  torchvision.utils import save_image
 from torchvision.datasets import MNIST
+from dataloader import TrajectoryDataset
 
 class EncoderModule(nn.Module):
     def __init__(self, input_channels, output_channels, stride, kernel, pad):
@@ -29,8 +29,12 @@ class Encoder(nn.Module):
         self.m3 = EncoderModule(128, 256, stride=pooling_kernels[1], kernel=3, pad=1)
 
     def forward(self, x):
-        out = self.m3(self.m2(self.m1(self.bottle(x))))
-        return out.view(-1, self.n_neurons_in_middle_layer)
+        out1 = self.bottle(x)
+        out2 = self.m1(out1)
+        out3 = self.m2(out2)
+        out = self.m3(out3)
+        # out = self.m3(self.m2(self.m1(self.bottle(x))))
+        return out.view(2, -1)
 
 class DecoderModule(nn.Module):
     def __init__(self, input_channels, output_channels, stride, activation="relu"):
@@ -48,13 +52,13 @@ class Decoder(nn.Module):
     def __init__(self, color_channels, pooling_kernels, decoder_input_size):
         super().__init__()
         self.decoder_input_size = decoder_input_size
-        self.m1 = DecoderModule(256, 128, stride=1)
-        self.m2 = DecoderModule(128, 64, stride=pooling_kernels[1])
+        self.m1 = DecoderModule(256, 2, stride=1)
+        self.m2 = DecoderModule(2, 64, stride=pooling_kernels[1])
         self.m3 = DecoderModule(64, 32, stride=pooling_kernels[0])
         self.bottle = DecoderModule(32, color_channels, stride=1, activation="sigmoid")
 
     def forward(self, x):
-        out = x.view(-1, 256, self.decoder_input_size, self.decoder_input_size)
+        out = x.view(2, 256, self.decoder_input_size, self.decoder_input_size)
         out = self.m3(self.m2(self.m1(out)))
         return self.bottle(out)
 
@@ -63,16 +67,16 @@ class VAE(nn.Module):
         self.device = "cuda" if torch.cuda.is_available() else 'cpu'
         super().__init__()
         self.n_latent_features = 64
-        # We only care about training on MNIST data
         pooling_kernel = [2,2]
-        encoder_output_size = 7
-        color_channels = 1
+        encoder_output_size = 64
+        color_channels = 3
         n_neurons_middle_layer = 256 * encoder_output_size * encoder_output_size
 
         # Encoder
         self.encoder = Encoder(color_channels, pooling_kernel, n_neurons_middle_layer)
         # Middle
         self.fc1 = nn.Linear(n_neurons_middle_layer, self.n_latent_features)
+        self.bn = nn.BatchNorm1d(self.n_latent_features)
         self.fc2 = nn.Linear(n_neurons_middle_layer, self.n_latent_features)
         self.fc3 = nn.Linear(self.n_latent_features, n_neurons_middle_layer)
         # Decoder
@@ -92,7 +96,7 @@ class VAE(nn.Module):
         z = mu + std * esp
         return z
     def _bottleneck(self, h):
-        mu, logvar = self.fc1(h), self.fc2(h)
+        mu, logvar = self.bn(self.fc1(h)), self.bn(self.fc2(h))
         z = self._reparameterize(mu, logvar)
         return z, mu, logvar
     def sampling(self):
@@ -104,7 +108,7 @@ class VAE(nn.Module):
     def forward(self, x):
         # Encoder
         h = self.encoder(x)
-        # Bottle-neck
+        # # Bottle-neck
         z, mu, logvar = self._bottleneck(h)
         # decoder
         z = self.fc3(z)
@@ -115,21 +119,17 @@ class VAE(nn.Module):
         data_transform = transforms.Compose([
                 transforms.ToTensor()
         ])
-        if dataset == "mnist":
-            train = MNIST(root="./data", train=True, transform=data_transform, download=True)
-            test = MNIST(root="./data", train=False, transform=data_transform, download=True)
-
-        train_loader = torch.utils.data.DataLoader(train, batch_size=128, shuffle=True, num_workers=0)
-        test_loader = torch.utils.data.DataLoader(test, batch_size=64, shuffle=True, num_workers=0)
-
+        train = TrajectoryDataset("data")
+        train_loader = torch.utils.data.DataLoader(train, batch_size=2, shuffle=True, num_workers=0)
+        # test_loader = torch.utils.data.DataLoader(test, batch_size=64, shuffle=True, num_workers=0)
+        test_loader = None
         return train_loader, test_loader
     def loss_function(self, recon_x, x, mu, logvar):
         BCE = F.binary_cross_entropy(recon_x, x, size_average=False)
         KLD = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
-        return BCE + KLD
+        return (BCE + KLD).cuda(self.device)
     def init_model(self):
         self.optimizer = optim.Adam(self.parameters(), lr=1e-3)
-
         if self.device == "cuda":
             self = self.cuda()
             torch.backends.cudnn.benchmark=True
@@ -140,12 +140,13 @@ class VAE(nn.Module):
         print(f"\nEpoch: {epoch+1:d} {datetime.datetime.now()}")
         train_loss = 0
         samples_cnt = 0
-        for batch_idx, (inputs, _) in enumerate(self.train_loader):
-            inputs = inputs.to(self.device)
+        for batch_idx, (inputs, _, _) in enumerate(self.train_loader):
             self.optimizer.zero_grad()
+            inputs = inputs / 255
+            inputs = inputs.to(self.device)
             recon_batch, mu, logvar = self(inputs)
-
             loss = self.loss_function(recon_batch, inputs, mu, logvar)
+            print(loss)
             loss.backward()
             self.optimizer.step()
 
@@ -161,7 +162,7 @@ class VAE(nn.Module):
         val_loss = 0
         samples_cnt = 0
         with torch.no_grad():
-            for batch_idx, (inputs, _) in enumerate(self.test_loader):
+            for batch_idx, (inputs, _, _) in enumerate(self.test_loader):
                 inputs = inputs.to(self.device)
                 recon_batch, mu, logvar = self(inputs)
                 val_loss += self.loss_function(recon_batch, inputs, mu, logvar).item()
@@ -185,9 +186,7 @@ class VAE(nn.Module):
 def main():
     net = VAE("mnist")
     net.init_model()
-    for i in range(0, 20):
-        net.fit_train(i + 1)
-        net.test(i+1)
+    net.fit_train(0)
     net.save_history()
 if __name__ == "__main__":
     main()
