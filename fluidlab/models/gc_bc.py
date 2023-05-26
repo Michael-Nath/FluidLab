@@ -24,6 +24,8 @@ class MLPModule(nn.Module):
         self.l1 = nn.Linear(input_dim, output_dim)
         self.bn = nn.BatchNorm1d(output_dim)
         self.relu = nn.ReLU()
+    def forward(self, x):
+        return self.relu(self.bn(self.l1(x)))
 
 class GCBCAgent(nn.Module):
     def build_conv_layers_(self) -> nn.Sequential:
