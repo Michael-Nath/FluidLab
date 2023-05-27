@@ -6,6 +6,7 @@ from torch.utils.data import Dataset, DataLoader
 
 MAX_N_TRAJS = 2500
 N_TRAJS_PER_FILE = 500
+N_TSTEPS_PER_TRAJ = 330
 EXP_NAME = "exp_latteart"
 AC_DIM = 3
 
@@ -35,11 +36,13 @@ class TrajectoryDataset(Dataset):
             self.traj_paths.append(file)
 
     def __len__(self):
-        return MAX_N_TRAJS
+        return N_TSTEPS_PER_TRAJ * MAX_N_TRAJS
 
     def __getitem__(self, idx):
+        # first get which traj this tstep idx would correspond to
+        traj = idx // N_TSTEPS_PER_TRAJ
         # first find which traj file this traj would be found in
-        adj_idx = idx // N_TRAJS_PER_FILE
+        adj_idx = traj // N_TRAJS_PER_FILE
         f = self.traj_paths[adj_idx]
 
         # second get the specific trajectory within that file
@@ -49,28 +52,40 @@ class TrajectoryDataset(Dataset):
             print(f)
             raise e
         traj_idxs = list(trajs.keys())
-        traj_idx = idx % N_TRAJS_PER_FILE
+        traj_idx = traj % N_TRAJS_PER_FILE
         try:
             traj = trajs[traj_idxs[traj_idx]]
         except ValueError as e:
-            print(idx)
+            print(idx, traj)
             raise e
-        img_obs_matrix = []
-        action_matrix = []
         sim_state_matrix = []
         # pick a random timestep
-        tstep = np.random.choice(list(traj.keys()))
-        img_obs_matrix = traj[tstep]["img_obs"][:]
-        img_obs_matrix = np.transpose(img_obs_matrix, (2, 0, 1))
-        img_obs_matrix = torch.Tensor(img_obs_matrix)
-        action_matrix = torch.Tensor(np.array(action_matrix))
+        tstep_keys = list(traj.keys())
+        # random_idx = np.random.choice(range(len(tstep_keys) - 1))
+        # tstep = tstep_keys[random_idx]
+        tstep = tstep_keys[idx % N_TSTEPS_PER_TRAJ]
+        # tstep_next = tstep_keys[random_idx + 1]
+        if (idx % N_TSTEPS_PER_TRAJ) + 1 == len(tstep_keys):
+            tstep_next = tstep
+        else:
+            tstep_next = tstep_keys[(idx % N_TSTEPS_PER_TRAJ) + 1]
+        img_obs = traj[tstep]["img_obs"][:]
+        img_obs_next = traj[tstep_next]["img_obs"][:]
+        img_obs = np.transpose(img_obs, (2, 0, 1))
+        img_obs = torch.Tensor(img_obs)
+        img_obs_next = np.transpose(img_obs_next , (2, 0, 1))
+        img_obs_next = torch.Tensor(img_obs)
+        action = traj[tstep]["action"][:]
+        if len(action) == 0:
+            action = np.array([0] * 3)
+        action = torch.Tensor(action)
         sim_state_matrix = torch.Tensor(np.array(sim_state_matrix))
-        return img_obs_matrix, action_matrix, sim_state_matrix
+        return img_obs, img_obs_next, action, sim_state_matrix
 
 
 if __name__ == "__main__":
     ds = TrajectoryDataset("data")
-    train_dataloader = DataLoader(ds, batch_size=32, num_workers=2)
+    train_dataloader = DataLoader(ds, batch_size=2, num_workers=1)
     img_obs_batch, action_batch, sim_state_batch = next(iter(train_dataloader))
     # print(action_batch.size())
     for f in ds.traj_paths:
