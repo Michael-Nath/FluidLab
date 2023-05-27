@@ -55,17 +55,24 @@ class TrajectoryDataset(Dataset):
         except ValueError as e:
             print(idx)
             raise e
-        img_obs_matrix = []
-        action_matrix = []
         sim_state_matrix = []
         # pick a random timestep
-        tstep = np.random.choice(list(traj.keys()))
-        img_obs_matrix = traj[tstep]["img_obs"][:]
-        img_obs_matrix = np.transpose(img_obs_matrix, (2, 0, 1))
-        img_obs_matrix = torch.Tensor(img_obs_matrix)
-        action_matrix = torch.Tensor(np.array(action_matrix))
+        tstep_keys = list(traj.keys())
+        random_idx = np.random.choice(range(len(tstep_keys) - 1))
+        tstep = tstep_keys[random_idx]
+        tstep_next = tstep_keys[random_idx + 1]
+        img_obs = traj[tstep]["img_obs"][:]
+        img_obs_next = traj[tstep_next]["img_obs"][:]
+        img_obs = np.transpose(img_obs, (2, 0, 1))
+        img_obs = torch.Tensor(img_obs)
+        img_obs_next = np.transpose(img_obs_next , (2, 0, 1))
+        img_obs_next = torch.Tensor(img_obs)
+        action = traj[tstep]["action"][:]
+        if len(action) == 0:
+            action = np.array([0] * 3)
+        action = torch.Tensor(action)
         sim_state_matrix = torch.Tensor(np.array(sim_state_matrix))
-        return img_obs_matrix, action_matrix, sim_state_matrix
+        return img_obs, img_obs_next, action, sim_state_matrix
 
 
 if __name__ == "__main__":

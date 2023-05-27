@@ -125,7 +125,7 @@ class VAE(nn.Module):
         test_loader = None
         return train_loader, test_loader
     def loss_function(self, recon_x, x, mu, logvar):
-        BCE = F.binary_cross_entropy(recon_x, x, size_average=False)
+        BCE = F.binary_cross_entropy(recon_x, x, size_average=True)
         KLD = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
         return (BCE + KLD).cuda(self.device)
     def init_model(self):
@@ -140,7 +140,7 @@ class VAE(nn.Module):
         print(f"\nEpoch: {epoch+1:d} {datetime.datetime.now()}")
         train_loss = 0
         samples_cnt = 0
-        for batch_idx, (inputs, _, _) in enumerate(self.train_loader):
+        for batch_idx, (inputs, _, _, _) in enumerate(self.train_loader):
             self.optimizer.zero_grad()
             inputs = inputs / 255
             inputs = inputs.to(self.device)
@@ -149,11 +149,10 @@ class VAE(nn.Module):
             print(loss)
             loss.backward()
             self.optimizer.step()
-
             train_loss += loss.item()
             samples_cnt += inputs.size(0)
-
             if batch_idx%50 == 0:
+                torch.save(self.state_dict(), "vae_weights.pt")
                 print(batch_idx, len(self.train_loader), f"Loss: {train_loss/samples_cnt:f}")
 
         self.history["loss"].append(train_loss/samples_cnt)
