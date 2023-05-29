@@ -189,9 +189,11 @@ class VAE(nn.Module):
         self.eval()
         val_loss = 0
         samples_cnt = 0
+        self.load_state_dict(torch.load("vae_weights_train.pt"))
         with torch.no_grad():
-            for batch_idx, (inputs, _, _) in enumerate(self.test_loader):
+            for batch_idx, (inputs, _, _, _) in enumerate(self.test_loader):
                 inputs = inputs.to(self.device)
+                inputs = inputs / 255
                 recon_batch, mu, logvar = self(inputs)
                 val_loss += self.loss_function(recon_batch, inputs, mu, logvar).item()
                 samples_cnt += inputs.size(0)
@@ -206,6 +208,8 @@ class VAE(nn.Module):
                         f"{self.model_name}/reconstruction_epoch_{str(epoch)}.png",
                         nrow=8,
                     )
+                if batch_idx >= 25:
+                    break
 
         print(batch_idx, len(self.test_loader), f"ValLoss: {val_loss/samples_cnt:f}")
         self.history["val_loss"].append(val_loss / samples_cnt)
@@ -224,9 +228,10 @@ class VAE(nn.Module):
 
 
 def main():
-    net = VAE("mnist")
+    net = VAE("latteart-recon")
     net.init_model()
-    net.fit_train(0)
+    # net.fit_train(0)
+    net.test(0)
     # net.save_history()
 
 

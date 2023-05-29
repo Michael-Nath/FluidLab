@@ -89,11 +89,11 @@ class NumPyTrajectoryDataset(Dataset):
         self.trajs_dir = trajs_dir
         self.offset = 0
         if not train:
-            self.offset = 500
+            self.offset = 1250
         self.prefix = "traj_"
 
     def __len__(self):
-        return MAX_N_TRAJS * N_TSTEPS_PER_TRAJ
+        return (MAX_N_TRAJS * N_TSTEPS_PER_TRAJ) // 2
 
     def __getitem__(self, idx):
         traj = idx // N_TSTEPS_PER_TRAJ
