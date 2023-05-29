@@ -4,8 +4,9 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import torch.distributions as distributions
-from dataloader import TrajectoryDataset
+from fluidlab.models.dataloader import NumPyTrajectoryDataset
 import itertools
+import argparse
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -67,16 +68,23 @@ class GCBCAgent(nn.Module):
         means = self.mlp_layers(self.conv_layers(x)).to(self.device)
         return distributions.Normal(means, torch.exp(self.logstd))
 
+    def test_forward(self):
+        # randomly generated input
+        x = torch.rand(2, 6, 256, 256)
+        dist = self(x)
+        return dist.sample()
+
     def update(self, obs_no, ac_na):
         dist = self.forward(obs_no)
         pred_ac_na = dist.sample()
         return pred_ac_na.to(self.device)
 
 
-def train():
-    train = TrajectoryDataset("data")
+def train(out_weights_file):
+    train = NumPyTrajectoryDataset("trajs", train=True)
+    print(len(train))
     train_loader = torch.utils.data.DataLoader(
-        train, batch_size=2, shuffle=True, num_workers=2
+        train, batch_size=32, shuffle=True, num_workers=2
     )
     agent = GCBCAgent(3)
     gcbc_optim = optim.Adam(
@@ -88,20 +96,26 @@ def train():
     )
     for batch_idx, (img_obs, img_obs_next, action, _) in enumerate(train_loader):
         inpt = torch.cat((img_obs, img_obs_next), 1)
+        inpt = inpt.type('torch.FloatTensor')
         dist = agent.forward(inpt)
         action = action.detach().to(device)
         log_probs = dist.log_prob(action)
         loss = -torch.sum(log_probs, dim=1).mean()
         print(loss)
         loss.backward()
+        if batch_idx % 5 == 0:
+            torch.save(agent.state_dict(), out_weights_file)
         gcbc_optim.step()
 
 
-# agent = GCBCAgent(5)
-# ex_input_obs_batch = torch.randn((5, 3, 256, 256))
-# ex_goal_obs_batch = torch.randn((5, 3, 256, 256))
-# ex_ac_batch = torch.randn((5, 5))
-# inpt = torch.cat((ex_input_obs_batch, ex_goal_obs_batch), 1)
-# print(agent.update(inpt, ex_ac_batch))
+def get_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--out_weights_file", type=str, default="gcbc_weights.pt")
+    args = parser.parse_args()
+    return args
 
-train()
+
+if __name__ == "__main__":
+    args = get_args()
+    print(args)
+    train(out_weights_file=args.out_weights_file)

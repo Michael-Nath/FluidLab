@@ -1,4 +1,6 @@
 import numpy as np
+from torch import load
+from fluidlab.models.gc_bc import GCBCAgent
 from fluidlab.optimizer.optim import *
 from fluidlab.utils.misc import is_on_server
 if not is_on_server():
@@ -162,6 +164,14 @@ class CorrelatedNoisePolicy:
     def get_actions_p(self, i = 0, **kwargs):
         # For now, do not distinguish between these two kinds of actions
         return self.get_action_v(i)
+
+class LoadedGCBCPolicy:
+    def __init__(self, action_dim, weights_file):
+        self.agent = GCBCAgent(action_dim)
+        self.agent.load_state_dict(load(weights_file))
+    def get_action_v(self, i, **kwargs):
+        a = self.agent.test_forward()
+        return a
 
 class TrainablePolicy:
     def __init__(self, optim_cfg, init_range, action_dim, horizon, action_range, fix_dim=None):

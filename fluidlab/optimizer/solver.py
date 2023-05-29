@@ -29,16 +29,29 @@ class Solver:
             if i < horizon_action:
                 action = policy.get_action_v(i, agent=taichi_env.agent, update=True)
             else:
+                
                 action = None
-            sim_state = self.env.taichi_env.get_state_RL() 
+            # sim_state = self.env.taichi_env.get_state_RL() 
             img = taichi_env.render('rgb_array')
             taichi_env.step(action)
-            action_matrix.append(action if action is not None else [0] * self.env )
-            sim_state_matrix.append(sim_state)
-            img_obs_matrix.append(img)
+            action_matrix.append(action if action is not None else [0] * 3 )
+            # sim_state_matrix.append(sim_state)
             self.logger.write_img(img, iteration, i)
-        self.logger.write_traj(np.array(action_matrix), np.array(sim_state_matrix), np.array(img_obs_matrix), iteration, i)
+            img_obs_matrix.append(self.logger.resize_img(img))
+        action_matrix = np.array(action_matrix)
+        img_obs_matrix = np.array(img_obs_matrix)
+        np.savez_compressed(f"{self.logger.traj_writer.trajs_fname}/traj_{iteration:04d}", actions=action_matrix, img_obs=img_obs_matrix)
+        return img_obs_matrix, action_matrix
 
+    def run_bc(self, weights_file):
+        taichi_env = self.env.taichi_env
+        horizon = self.env.horizon
+        policy = self.env.bc_policy(weights_file)
+        a = policy.get_action_v(0, agent=taichi_env.agent, update=True)
+        print(a)
+        raise NotImplementedError
+        
+    
     def solve(self):
         taichi_env = self.env.taichi_env
         policy = self.env.trainable_policy(self.cfg.optim, self.cfg.init_range)
@@ -78,7 +91,7 @@ class Solver:
                     action = None
                 taichi_env.step_grad(action)
 
-            taichi_en.apply_agent_action_p_grad(policy.get_actions_p())
+            taichi_env.apply_agent_action_p_grad(policy.get_actions_p())
             t3 = time()
             print(f'=======> forward: {t2-t1:.2f}s backward: {t3-t2:.2f}s')
             return loss_info, taichi_env.agent.get_grad(horizon_action)
@@ -124,9 +137,20 @@ def solve_policy(env, logger, cfg):
     env.reset()
     solver = Solver(env, logger, cfg)
     solver.solve()
-def gen_trajs_from_policy(env, logger, cfg, n_trajs):
+
+def gen_trajs_from_policy(env, logger, cfg, n_trajs, start_iter):
+    # actions_matrix = []
+    # img_obs_matrix = []
     for i in range(n_trajs):
         env.reset()
         solver = Solver(env, logger, cfg)
-        solver.create_trajs(i + 1)
+        img_obs_i, action_i = solver.create_trajs(start_iter + i)
+        # actions_matrix.append(action_i)
+        # img_obs_matrix.append(img_obs_i)
         print(f"Finished creating trajectory {i + 1} at {datetime.now().strftime('%H:%M:%S')}")
+    # actions_matrix = np.array(actions_matrix)
+    # img_obs_matrix = np.array(img_obs_matrix)
+        
+def run_bc(env, logger, cfg, weights_file):
+    solver = Solver(env, logger, cfg)
+    solver.run_bc(weights_file)
