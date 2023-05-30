@@ -32,10 +32,10 @@ class Encoder(nn.Module):
     def __init__(self, color_channels, pooling_kernels, n_neurons_in_middle_layer):
         self.n_neurons_in_middle_layer = n_neurons_in_middle_layer
         super().__init__()
-        self.bottle = EncoderModule(color_channels, 32, stride=1, kernel=1, pad=0)
-        self.m1 = EncoderModule(32, 64, stride=1, kernel=3, pad=1)
-        self.m2 = EncoderModule(64, 128, stride=pooling_kernels[0], kernel=3, pad=1)
-        self.m3 = EncoderModule(128, 256, stride=pooling_kernels[1], kernel=3, pad=1)
+        self.bottle = EncoderModule(color_channels, 32, stride=2, kernel=2, pad=0)
+        self.m1 = EncoderModule(32, 64, stride=2, kernel=2, pad=0)
+        self.m2 = EncoderModule(64, 64, stride=1, kernel=3, pad=1)
+        self.m3 = EncoderModule(64, 128, stride=1, kernel=3, pad=1)
 
     def forward(self, x):
         out1 = self.bottle(x)
@@ -43,14 +43,14 @@ class Encoder(nn.Module):
         out3 = self.m2(out2)
         out = self.m3(out3)
         # out = self.m3(self.m2(self.m1(self.bottle(x))))
-        return out.view(32, -1)
+        return out.view(out.shape[0], -1)
 
 
 class DecoderModule(nn.Module):
-    def __init__(self, input_channels, output_channels, stride, activation="relu"):
+    def __init__(self, input_channels, output_channels, kernel, stride, pad, activation="relu"):
         super().__init__()
         self.convt = nn.ConvTranspose2d(
-            input_channels, output_channels, kernel_size=stride, stride=stride
+            input_channels, output_channels, kernel_size=kernel, stride=stride, padding=pad
         )
         self.bn = nn.BatchNorm2d(output_channels)
         if activation == "relu":
@@ -66,26 +66,27 @@ class Decoder(nn.Module):
     def __init__(self, color_channels, pooling_kernels, decoder_input_size):
         super().__init__()
         self.decoder_input_size = decoder_input_size
-        self.m1 = DecoderModule(256, 2, stride=1)
-        self.m2 = DecoderModule(2, 64, stride=pooling_kernels[1])
-        self.m3 = DecoderModule(64, 32, stride=pooling_kernels[0])
-        self.bottle = DecoderModule(32, color_channels, stride=1, activation="sigmoid")
+        self.m1 = DecoderModule(128, 64, kernel=4,stride=2, pad=1)
+        self.m2 = DecoderModule(64, 32, kernel=4,stride=2, pad=1)
+        self.m3 = DecoderModule(64, 32, kernel=4,stride=2, pad=1)
+        self.bottle = DecoderModule(32, color_channels, kernel=3, stride=1, pad=1, activation="sigmoid")
 
     def forward(self, x):
-        out = x.view(32, 256, self.decoder_input_size, self.decoder_input_size)
-        out = self.m3(self.m2(self.m1(out)))
-        return self.bottle(out)
+        out = x.view(x.shape[0], 128, self.decoder_input_size, self.decoder_input_size)
+        # out = self.m3(self.m2(self.m1(out)))
+        out = self.bottle(self.m2(self.m1(out)))
+        return out
 
 
 class VAE(nn.Module):
     def __init__(self, dataset):
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         super().__init__()
-        self.n_latent_features = 64
-        pooling_kernel = [2, 2]
+        self.n_latent_features = 32
+        pooling_kernel = [2,2]
         encoder_output_size = 64
         color_channels = 3
-        n_neurons_middle_layer = 256 * encoder_output_size * encoder_output_size
+        n_neurons_middle_layer = 128 * encoder_output_size * encoder_output_size
 
         # Encoder
         self.encoder = Encoder(color_channels, pooling_kernel, n_neurons_middle_layer)
@@ -136,10 +137,10 @@ class VAE(nn.Module):
 
     def load_data(self, dataset):
         data_transform = transforms.Compose([transforms.ToTensor()])
-        train = NumPyTrajectoryDataset("trajs", train=True)
+        train = NumPyTrajectoryDataset("npy_trajs", train=True)
         test = NumPyTrajectoryDataset("trajs", train=False)
         train_loader = torch.utils.data.DataLoader(
-            train, batch_size=32, shuffle=True, num_workers=1
+            train, batch_size=32, shuffle=True, num_workers=4
         )
         test_loader = torch.utils.data.DataLoader(
             test, batch_size=32, shuffle=True, num_workers=0
@@ -230,8 +231,8 @@ class VAE(nn.Module):
 def main():
     net = VAE("latteart-recon")
     net.init_model()
-    # net.fit_train(0)
-    net.test(0)
+    net.fit_train(0)
+    # net.test(0)
     # net.save_history()
 
 

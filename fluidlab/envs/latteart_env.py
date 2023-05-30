@@ -8,6 +8,7 @@ from fluidlab.configs.macros import *
 from fluidlab.optimizer.policies import *
 from fluidlab.fluidengine.taichi_env import TaichiEnv
 from fluidlab.fluidengine.losses import LatteArtLoss
+import torch
 
 class LatteArtEnv(FluidEnv):
     def __init__(self, version, loss=True, loss_type='diff', seed=None, renderer_type='GGUI'):
@@ -146,3 +147,8 @@ class LatteArtEnv(FluidEnv):
         return CorrelatedNoisePolicy(self.agent.action_dim, self.horizon_action)
     def bc_policy(self, weights_file):
         return LoadedGCBCPolicy(self.agent.action_dim, weights_file)
+    def get_loss(self, pred_a, actual_a):
+        actual_a = torch.Tensor([actual_a])
+        mse = torch.nn.MSELoss()
+        loss = mse(pred_a, actual_a)
+        return loss

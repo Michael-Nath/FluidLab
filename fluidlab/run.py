@@ -29,6 +29,7 @@ def get_args():
     parser.add_argument("--out_ds", type=str, default="trajs.hdf5")
     parser.add_argument("--start_iter", type=int, default=0)
     parser.add_argument("--in_weights_file", type=str, default="gcbc_weights.pt")
+    parser.add_argument("--in_trajs_file", type=str, default="data/trajs0000_0500_%d.hdf5")
 
     args = parser.parse_args()
 
@@ -83,7 +84,7 @@ def main2():
         env = gym.make(cfg.EXP.env_name, seed=cfg.EXP.seed, loss=False, loss_type="diff", renderer_type=args.renderer_type)
     else:
         env = gym.make(args.env_name, seed=args.seed, loss=False, loss_type="diff", renderer_type=args.renderer_type)
-    run_bc(env, logger, cfg, args.in_weights_file)
+    run_bc(env, logger, cfg, args.in_weights_file, args.in_trajs_file)
     
 
 

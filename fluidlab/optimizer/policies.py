@@ -1,5 +1,5 @@
 import numpy as np
-from torch import load
+from torch import load, cat, Tensor, no_grad
 from fluidlab.models.gc_bc import GCBCAgent
 from fluidlab.optimizer.optim import *
 from fluidlab.utils.misc import is_on_server
@@ -169,9 +169,20 @@ class LoadedGCBCPolicy:
     def __init__(self, action_dim, weights_file):
         self.agent = GCBCAgent(action_dim)
         self.agent.load_state_dict(load(weights_file))
-    def get_action_v(self, i, **kwargs):
-        a = self.agent.test_forward()
-        return a
+    def get_action(self, cur_img_obs, goal_img_obs):
+        with no_grad():
+            cur_img_obs = Tensor(cur_img_obs)
+            goal_img_obs = Tensor(goal_img_obs)
+            if (cur_img_obs.size()[0] != 3):
+                cur_img_obs = cur_img_obs.movedim(2, 0)
+            if (goal_img_obs.size()[0] != 3):
+                goal_img_obs = goal_img_obs.movedim(2, 0)
+            x = cat((cur_img_obs, goal_img_obs), dim=0)
+            x = x.unsqueeze(0)
+            x = cat((x,x), dim=0)
+            dist = self.agent.forward(x)
+            a = dist.sample()
+            return a
 
 class TrainablePolicy:
     def __init__(self, optim_cfg, init_range, action_dim, horizon, action_range, fix_dim=None):

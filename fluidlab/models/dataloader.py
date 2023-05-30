@@ -100,29 +100,32 @@ class NumPyTrajectoryDataset(Dataset):
         traj += self.offset
         adj_idx = idx % N_TSTEPS_PER_TRAJ
         path = os.path.join("fluidlab/", "..", self.trajs_dir)
-        f = np.load(f"{path}/{self.prefix}{traj:04d}.npz", mmap_mode="r")
+        f = np.load(f"{path}/{self.prefix}{traj:04d}.npz")
+        import time
+        a = time.time()
         img_obs = f["img_obs"][adj_idx]
+        actions = f["actions"][adj_idx]
         next_img_obs = f["img_obs"][adj_idx]
+        print(f"Took {time.time() - a} seconds")
         img_obs = np.transpose(img_obs, (2, 0, 1))
         next_img_obs = np.transpose(next_img_obs, (2, 0, 1))
-        actions = f["actions"][adj_idx]
         f.close()
-        return img_obs, next_img_obs, actions, []
+        return img_obs, [], [], []
 
 
 def time_dataloading(batch_size):
     import time
 
-    train = NumPyTrajectoryDataset("trajs", train=True)
+    train = NumPyTrajectoryDataset("npy_trajs", train=True)
     a = time.time()
     train_loader = torch.utils.data.DataLoader(
-        train, batch_size=batch_size, shuffle=True, num_workers=0
+        train, batch_size=batch_size, shuffle=True, num_workers=4
     )
     i = 0
     for batch_idx, (img_obs, next_img_obs, actions, _) in enumerate(train_loader):
-        print(img_obs.size())
-        print(next_img_obs.size())
-        print(actions.size())
+        # print(img_obs.size())
+        # print(next_img_obs.size())
+        # print(actions.size())
         if i == 5:
             break
         i += 1
@@ -132,9 +135,10 @@ def time_dataloading(batch_size):
 
 
 if __name__ == "__main__":
-    # ds = NumPyTrajectoryDataset("trajs")
+    ds = NumPyTrajectoryDataset("trajs")
     # train_dataloader = DataLoader(ds, batch_size=2, num_workers=1)
     # img_obs_batch, action_batch, sim_state_batch = next(iter(train_dataloader))
-    time_dataloading(batch_size=32)
+
+    time_dataloading(batch_size=64)
     # for f in ds.traj_paths:
     #     f.close()
