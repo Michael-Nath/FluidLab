@@ -1,4 +1,5 @@
 import numpy as np
+import time
 import torch
 import os
 import h5py
@@ -100,38 +101,31 @@ class NumPyTrajectoryDataset(Dataset):
         traj += self.offset
         adj_idx = idx % N_TSTEPS_PER_TRAJ
         path = os.path.join("fluidlab/", "..", self.trajs_dir)
-        f = np.load(f"{path}/{self.prefix}{traj:04d}.npz")
-        import time
-        a = time.time()
-        img_obs = f["img_obs"][adj_idx]
-        actions = f["actions"][adj_idx]
-        next_img_obs = f["img_obs"][adj_idx]
-        print(f"Took {time.time() - a} seconds")
+        f_o = np.load(f"{path}/{self.prefix}{traj:04d}_o.npy", mmap_mode="r")
+        f_a = np.load(f"{path}/{self.prefix}{traj:04d}_a.npy", mmap_mode="r")
+        img_obs = f_o[adj_idx].copy()
+        actions = f_a[adj_idx].copy()
+        next_img_obs = f_o[adj_idx].copy()
         img_obs = np.transpose(img_obs, (2, 0, 1))
         next_img_obs = np.transpose(next_img_obs, (2, 0, 1))
-        f.close()
-        return img_obs, [], [], []
+        return img_obs, next_img_obs, actions, []
 
 
 def time_dataloading(batch_size):
-    import time
-
     train = NumPyTrajectoryDataset("npy_trajs", train=True)
-    a = time.time()
     train_loader = torch.utils.data.DataLoader(
         train, batch_size=batch_size, shuffle=True, num_workers=4
     )
     i = 0
+    a = time.time()
     for batch_idx, (img_obs, next_img_obs, actions, _) in enumerate(train_loader):
-        # print(img_obs.size())
-        # print(next_img_obs.size())
-        # print(actions.size())
-        if i == 5:
+        print(
+            f"Dataloading with batch size = {batch_size} took {time.time() - a:6f} seconds"
+        )
+        if i == 10:
             break
         i += 1
-    print(
-        f"Dataloading with batch size = {batch_size} took {time.time() - a:6f} seconds"
-    )
+        a = time.time()
 
 
 if __name__ == "__main__":
@@ -139,6 +133,6 @@ if __name__ == "__main__":
     # train_dataloader = DataLoader(ds, batch_size=2, num_workers=1)
     # img_obs_batch, action_batch, sim_state_batch = next(iter(train_dataloader))
 
-    time_dataloading(batch_size=64)
+    time_dataloading(batch_size=256)
     # for f in ds.traj_paths:
     #     f.close()
