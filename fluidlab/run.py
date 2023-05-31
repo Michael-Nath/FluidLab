@@ -8,7 +8,7 @@ import numpy as np
 import fluidlab.envs
 from fluidlab.envs.fluid_env import FluidEnv
 from fluidlab.utils.logger import Logger
-from fluidlab.optimizer.solver import solve_policy, gen_trajs_from_policy
+from fluidlab.optimizer.solver import solve_policy, gen_trajs_from_policy, run_bc
 from fluidlab.optimizer.recorder import record_target, replay_policy, replay_target
 from fluidlab.utils.config import load_config
 
@@ -27,6 +27,9 @@ def get_args():
     parser.add_argument("--gen_trajs", action="store_true", default=True)
     parser.add_argument("--n_trajs", type=int, default=1)
     parser.add_argument("--out_ds", type=str, default="trajs.hdf5")
+    parser.add_argument("--start_iter", type=int, default=0)
+    parser.add_argument("--in_weights_file", type=str, default="gcbc_weights.pt")
+    parser.add_argument("--in_trajs_file", type=str, default="data/trajs0000_0500_%d.hdf5")
 
     args = parser.parse_args()
 
@@ -64,11 +67,27 @@ def main():
         else:
             env = gym.make(args.env_name, seed=args.seed, loss=False, loss_type="diff", renderer_type=args.renderer_type)
         logger = Logger(args.exp_name, args.out_ds)
-        gen_trajs_from_policy(env, logger, cfg.SOLVER, args.n_trajs)
+        gen_trajs_from_policy(env, logger, cfg.SOLVER, args.n_trajs, args.start_iter)
     else:
         logger = Logger(args.exp_name)
         env = gym.make(cfg.EXP.env_name, seed=cfg.EXP.seed, loss=True, loss_type='diff', renderer_type=args.renderer_type)
         solve_policy(env, logger, cfg.SOLVER)
 
+
+def main2():
+    args = get_args()
+    cfg = None
+    if args.cfg_file is not None:
+        cfg = load_config(args.cfg_file)
+    logger = Logger(args.exp_name, "blooblah")
+    if cfg is not None:
+        env = gym.make(cfg.EXP.env_name, seed=cfg.EXP.seed, loss=False, loss_type="diff", renderer_type=args.renderer_type)
+    else:
+        env = gym.make(args.env_name, seed=args.seed, loss=False, loss_type="diff", renderer_type=args.renderer_type)
+    run_bc(env, logger, cfg, args.in_weights_file, args.in_trajs_file)
+    
+
+
 if __name__ == '__main__':
     main()
+    # main2()
