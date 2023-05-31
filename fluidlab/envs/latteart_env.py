@@ -148,7 +148,7 @@ class LatteArtEnv(FluidEnv):
     def bc_policy(self, weights_file):
         return LoadedGCBCPolicy(self.agent.action_dim, weights_file)
     def get_loss(self, pred_a, actual_a):
-        actual_a = torch.Tensor([actual_a])
+        actual_a = torch.Tensor(actual_a)
         mse = torch.nn.MSELoss()
         loss = mse(pred_a, actual_a)
         return loss

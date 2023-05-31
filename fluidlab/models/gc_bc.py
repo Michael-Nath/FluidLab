@@ -81,10 +81,10 @@ class GCBCAgent(nn.Module):
 
 
 def train(out_weights_file):
-    train = NumPyTrajectoryDataset("trajs", train=True)
+    train = NumPyTrajectoryDataset("npy_trajs", train=True)
     print(len(train))
     train_loader = torch.utils.data.DataLoader(
-        train, batch_size=32, shuffle=True, num_workers=2
+        train, batch_size=64, shuffle=True, num_workers=4
     )
     agent = GCBCAgent(3)
     gcbc_optim = optim.Adam(
@@ -102,8 +102,11 @@ def train(out_weights_file):
         log_probs = dist.log_prob(action)
         loss = -torch.sum(log_probs, dim=1).mean()
         print(loss)
+        if loss < 0.3:
+            torch.save(agent.state_dict(), out_weights_file)
+            return
         loss.backward()
-        if batch_idx % 5 == 0:
+        if batch_idx % 100 == 0:
             torch.save(agent.state_dict(), out_weights_file)
         gcbc_optim.step()
 

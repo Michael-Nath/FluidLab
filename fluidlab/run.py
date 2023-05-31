@@ -28,6 +28,7 @@ def get_args():
     parser.add_argument("--n_trajs", type=int, default=1)
     parser.add_argument("--out_ds", type=str, default="trajs.hdf5")
     parser.add_argument("--start_iter", type=int, default=0)
+    parser.add_argument("--test", action="store_true")
     parser.add_argument("--in_weights_file", type=str, default="gcbc_weights.pt")
     parser.add_argument("--in_trajs_file", type=str, default="data/trajs0000_0500_%d.hdf5")
 
@@ -67,7 +68,7 @@ def main():
         else:
             env = gym.make(args.env_name, seed=args.seed, loss=False, loss_type="diff", renderer_type=args.renderer_type)
         logger = Logger(args.exp_name, args.out_ds)
-        gen_trajs_from_policy(env, logger, cfg.SOLVER, args.n_trajs, args.start_iter)
+        gen_trajs_from_policy(env, logger, cfg.SOLVER, args.n_trajs, args.start_iter, args.test)
     else:
         logger = Logger(args.exp_name)
         env = gym.make(cfg.EXP.env_name, seed=cfg.EXP.seed, loss=True, loss_type='diff', renderer_type=args.renderer_type)
@@ -89,5 +90,5 @@ def main2():
 
 
 if __name__ == '__main__':
-    main()
-    # main2()
+    # main()
+    main2()

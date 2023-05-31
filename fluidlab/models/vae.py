@@ -9,6 +9,7 @@ import torch.nn.functional as F
 import torchvision.transforms as transforms
 from torchvision.utils import save_image
 from dataloader import TrajectoryDataset, NumPyTrajectoryDataset
+import argparse
 
 
 class EncoderModule(nn.Module):
@@ -138,12 +139,12 @@ class VAE(nn.Module):
     def load_data(self, dataset):
         data_transform = transforms.Compose([transforms.ToTensor()])
         train = NumPyTrajectoryDataset("npy_trajs", train=True)
-        test = NumPyTrajectoryDataset("trajs", train=False)
+        test = NumPyTrajectoryDataset("npy_trajs", train=False)
         train_loader = torch.utils.data.DataLoader(
-            train, batch_size=32, shuffle=True, num_workers=4
+            train, batch_size=64, shuffle=True, num_workers=4
         )
         test_loader = torch.utils.data.DataLoader(
-            test, batch_size=32, shuffle=True, num_workers=0
+            test, batch_size=64, shuffle=True, num_workers=4
         )
         return train_loader, test_loader
 
@@ -160,7 +161,7 @@ class VAE(nn.Module):
         self.to(self.device)
 
     # Train
-    def fit_train(self, epoch):
+    def fit_train(self, epoch, out_weights_file):
         self.train()
         print(f"\nEpoch: {epoch+1:d} {datetime.datetime.now()}")
         train_loss = 0
@@ -176,8 +177,8 @@ class VAE(nn.Module):
             self.optimizer.step()
             train_loss += loss.item()
             samples_cnt += inputs.size(0)
-            if batch_idx % 50 == 0:
-                torch.save(self.state_dict(), "vae_weights_train.pt")
+            if batch_idx % 25 == 0:
+                torch.save(self.state_dict(), out_weights_file)
                 print(
                     batch_idx,
                     len(self.train_loader),
@@ -186,17 +187,19 @@ class VAE(nn.Module):
 
         self.history["loss"].append(train_loss / samples_cnt)
 
-    def test(self, epoch):
+    def test(self, epoch, in_weights_file):
         self.eval()
         val_loss = 0
         samples_cnt = 0
-        self.load_state_dict(torch.load("vae_weights_train.pt"))
+        self.load_state_dict(torch.load(in_weights_file))
         with torch.no_grad():
             for batch_idx, (inputs, _, _, _) in enumerate(self.test_loader):
                 inputs = inputs.to(self.device)
                 inputs = inputs / 255
                 recon_batch, mu, logvar = self(inputs)
-                val_loss += self.loss_function(recon_batch, inputs, mu, logvar).item()
+                loss = self.loss_function(recon_batch, inputs, mu, logvar).item() 
+                print(loss)
+                val_loss += loss
                 samples_cnt += inputs.size(0)
                 if batch_idx == 0:
                     save_image(
@@ -228,11 +231,19 @@ class VAE(nn.Module):
             pickle.dump(self.history, fp)
 
 
+def get_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--out_weights_file", type=str, default="vae_weights.pt")
+    parser.add_argument("--in_weights_file", type=str, default="vae_weights.pt")
+    args = parser.parse_args()
+    return args
+
 def main():
     net = VAE("latteart-recon")
     net.init_model()
-    net.fit_train(0)
-    # net.test(0)
+    args = get_args()
+    # net.fit_train(0, args.out_weights_file)
+    net.test(0, args.in_weights_file)
     # net.save_history()
 
 

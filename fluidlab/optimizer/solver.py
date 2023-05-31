@@ -17,7 +17,7 @@ class Solver:
         self.target_file = env.target_file
         self.logger = logger
 
-    def create_trajs(self, iteration):
+    def create_trajs(self, iteration, test=False):
         taichi_env = self.env.taichi_env
         horizon = self.env.horizon
         policy = self.env.random_policy(self.cfg.init_range)
@@ -33,53 +33,61 @@ class Solver:
                 action = policy.get_action_v(i, agent=taichi_env.agent, update=True)
             else:
                 action = None
-            # sim_state = self.env.taichi_env.get_state_RL()
+            sim_state = self.env.taichi_env.get_state_RL()
             img = taichi_env.render("rgb_array")
             taichi_env.step(action)
-            action_matrix.append(action if action is not None else [0] * 3)
-            # sim_state_matrix.append(sim_state)
+            action = action if action is not None else [0] * 3
+            if test:
+                self.logger.write_traj(action, sim_state, img, iteration, i)  
+            if not test:
+                sim_state_matrix.append(sim_state)
+                action_matrix.append(action if action is not None else [0] * 3)
+                img_obs_matrix.append(self.logger.resize_img(img))
             self.logger.write_img(img, iteration, i)
-            img_obs_matrix.append(self.logger.resize_img(img))
-        action_matrix = np.array(action_matrix)
-        img_obs_matrix = np.array(img_obs_matrix)
-        np.savez(
-            f"{self.logger.traj_writer.trajs_fname}/traj_{iteration:04d}",
-            actions=action_matrix,
-            img_obs=img_obs_matrix,
-        )
-        # np.save(f"{self.logger.traj_writer.trajs_fname}/traj_{iteration:04d}_action.npy", action_matrix)
-        # np.save(f"{self.logger.traj_writer.trajs_fname}/traj_{iteration:04d}_img_obs.npy", img_obs_matrix)
-        return img_obs_matrix, action_matrix
+        if not test:
+            action_matrix = np.array(action_matrix)
+            img_obs_matrix = np.array(img_obs_matrix)
+            np.savez(
+                f"{self.logger.traj_writer.trajs_fname}/traj_{iteration:04d}",
+                actions=action_matrix,
+                img_obs=img_obs_matrix,
+            )
+            return img_obs_matrix, action_matrix
+        else:
+            # np.save(f"{self.logger.traj_writer.trajs_fname}/traj_{iteration:04d}_action.npy", action_matrix)
+            # np.save(f"{self.logger.traj_writer.trajs_fname}/traj_{iteration:04d}_img_obs.npy", img_obs_matrix)
+            return
 
     def run_bc(self, weights_file, trajs_file):
         taichi_env = self.env.taichi_env
-        horizon = self.env.horizon
         policy = self.env.bc_policy(weights_file)
         f = File(trajs_file, driver="family")
         traj_keys = list(f["exp_latteart"].keys())
-        traj = traj_keys[0]
-        tsteps = f["exp_latteart"][traj]
-        tstep = tsteps["t_0000"]
-        loaded_sim_state = dict(tstep["sim_state"])
-        taichi_env_state = taichi_env.get_state()
-        loaded_sim_state["x"] = loaded_sim_state["x"][:]
-        loaded_sim_state["v"] = loaded_sim_state["v"][:]
-        loaded_sim_state["F"] = taichi_env_state["state"]["F"]
-        loaded_sim_state["C"] = taichi_env_state["state"]["C"]
-        loaded_sim_state["used"] = taichi_env_state["state"]["used"]
-        loaded_sim_state["agent"] = taichi_env_state["state"]["agent"]
-        taichi_env.set_state(loaded_sim_state)
-        next_tstep = tsteps["t_0001"]
-        cur_img_obs = taichi_env.render("rgb_array")
-        cur_img_obs = self.logger.resize_img(cur_img_obs)
-        goal_img_obs = next_tstep["img_obs"][:]
-        pred_a = policy.get_action(cur_img_obs, goal_img_obs)
-        actual_a = tstep["action"][:]
-        pred_a = pred_a[0].detach().cpu()
-        loss = self.env.get_loss(pred_a, actual_a)
-        print(loss)
+        for traj in traj_keys:
+            tsteps = f["exp_latteart"][traj]
+            tsteps_keys = list(tsteps.keys())
+            for i in range(len(tsteps_keys) - 1):
+                tstep_key = tsteps_keys[i]
+                tstep = tsteps[tstep_key]
+                loaded_sim_state = dict(tstep["sim_state"])
+                taichi_env_state = taichi_env.get_state()
+                loaded_sim_state["x"] = loaded_sim_state["x"][:]
+                loaded_sim_state["v"] = loaded_sim_state["v"][:]
+                loaded_sim_state["used"] = loaded_sim_state["used"][:].astype("int32")
+                loaded_sim_state["F"] = taichi_env_state["state"]["F"]
+                loaded_sim_state["C"] = taichi_env_state["state"]["C"]
+                loaded_sim_state["agent"] = taichi_env_state["state"]["agent"]
+                taichi_env.set_state(loaded_sim_state)
+                next_tstep = tsteps[tsteps_keys[i + 1]]
+                cur_img_obs = taichi_env.render("rgb_array")
+                cur_img_obs = self.logger.resize_img(cur_img_obs)
+                goal_img_obs = next_tstep["img_obs"][:]
+                pred_a = policy.get_action(cur_img_obs, goal_img_obs)
+                actual_a = tstep["action"][:]
+                pred_a = pred_a[0].detach().cpu()
+                loss = self.env.get_loss(pred_a, actual_a)
+                print(loss)
         f.close()
-        raise NotImplementedError
 
     def solve(self):
         taichi_env = self.env.taichi_env
@@ -182,20 +190,15 @@ def solve_policy(env, logger, cfg):
     solver.solve()
 
 
-def gen_trajs_from_policy(env, logger, cfg, n_trajs, start_iter):
-    # actions_matrix = []
-    # img_obs_matrix = []
+def gen_trajs_from_policy(env, logger, cfg, n_trajs, start_iter, test):
     for i in range(n_trajs):
         env.reset()
         solver = Solver(env, logger, cfg)
-        img_obs_i, action_i = solver.create_trajs(start_iter + i)
-        # actions_matrix.append(action_i)
-        # img_obs_matrix.append(img_obs_i)
+        print(test)
+        solver.create_trajs(start_iter + i, test)
         print(
             f"Finished creating trajectory {i + 1} at {datetime.now().strftime('%H:%M:%S')}"
         )
-    # actions_matrix = np.array(actions_matrix)
-    # img_obs_matrix = np.array(img_obs_matrix)
 
 
 def run_bc(env, logger, cfg, weights_file, trajs_file):
