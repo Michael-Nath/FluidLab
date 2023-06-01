@@ -2,13 +2,14 @@ import os
 import pickle
 import datetime
 import torch
-import torch
+import wandb
 import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
+from torch.utils.data import random_split
 import torchvision.transforms as transforms
 from torchvision.utils import save_image
-from dataloader import TrajectoryDataset, NumPyTrajectoryDataset
+from dataloader import NumPyTrajectoryDataset
 import argparse
 
 
@@ -43,7 +44,6 @@ class Encoder(nn.Module):
         out2 = self.m1(out1)
         out3 = self.m2(out2)
         out = self.m3(out3)
-        # out = self.m3(self.m2(self.m1(self.bottle(x))))
         return out.view(out.shape[0], -1)
 
 
@@ -74,7 +74,6 @@ class Decoder(nn.Module):
 
     def forward(self, x):
         out = x.view(x.shape[0], 128, self.decoder_input_size, self.decoder_input_size)
-        # out = self.m3(self.m2(self.m1(out)))
         out = self.bottle(self.m2(self.m1(out)))
         return out
 
@@ -99,7 +98,7 @@ class VAE(nn.Module):
         # Decoder
         self.decoder = Decoder(color_channels, pooling_kernel, encoder_output_size)
 
-        self.train_loader, self.test_loader = self.load_data(dataset)
+        self.train_loader, self.val_loader, self.test_loader = self.load_data(dataset)
         # history
         self.history = {"loss": [], "val_loss": []}
 
@@ -137,16 +136,19 @@ class VAE(nn.Module):
         return d, mu, logvar
 
     def load_data(self, dataset):
-        data_transform = transforms.Compose([transforms.ToTensor()])
         train = NumPyTrajectoryDataset("npy_trajs", train=True)
+        train, val = random_split(train, [0.7, 0.3])
         test = NumPyTrajectoryDataset("npy_trajs", train=False)
         train_loader = torch.utils.data.DataLoader(
             train, batch_size=64, shuffle=True, num_workers=4
         )
-        test_loader = torch.utils.data.DataLoader(
-            test, batch_size=64, shuffle=True, num_workers=4
+        val_loader = torch.utils.data.DataLoader(
+            val, batch_size=64, shuffle=True, num_workers=0
         )
-        return train_loader, test_loader
+        test_loader = torch.utils.data.DataLoader(
+            test, batch_size=32, shuffle=True, num_workers=2
+        )
+        return train_loader, val_loader, test_loader
 
     def loss_function(self, recon_x, x, mu, logvar):
         BCE = F.binary_cross_entropy(recon_x, x, size_average=True)
@@ -154,6 +156,12 @@ class VAE(nn.Module):
         return (BCE + KLD).cuda(self.device)
 
     def init_model(self):
+        wandb.init(
+        project="vae-training-fluid-manip",
+        config={
+            "learning-rate": 1e-3
+            }
+        )
         self.optimizer = optim.Adam(self.parameters(), lr=1e-3)
         if self.device == "cuda":
             self = self.cuda()
@@ -164,60 +172,56 @@ class VAE(nn.Module):
     def fit_train(self, epoch, out_weights_file):
         self.train()
         print(f"\nEpoch: {epoch+1:d} {datetime.datetime.now()}")
-        train_loss = 0
+        train_loss = []
         samples_cnt = 0
-        for batch_idx, (inputs, _, _, _) in enumerate(self.train_loader):
+        for batch_idx, (inputs, _, a, _) in enumerate(self.test_loader):
             self.optimizer.zero_grad()
             inputs = inputs / 255
             inputs = inputs.to(self.device)
             recon_batch, mu, logvar = self(inputs)
             loss = self.loss_function(recon_batch, inputs, mu, logvar)
-            print(loss)
             loss.backward()
+            wandb.log({"train_loss": loss})
             self.optimizer.step()
-            train_loss += loss.item()
+            train_loss.append(loss.item())
+            break
             samples_cnt += inputs.size(0)
             if batch_idx % 25 == 0:
                 torch.save(self.state_dict(), out_weights_file)
-                print(
-                    batch_idx,
-                    len(self.train_loader),
-                    f"Loss: {train_loss/samples_cnt:f}",
-                )
+            if batch_idx == 250:
+                break
+        print(f"Epoch {epoch} | End of Epoch Train Loss: {loss.item()}")
+        # wandb.log({"End of Epoch Loss": loss.item()})
 
-        self.history["loss"].append(train_loss / samples_cnt)
-
-    def test(self, epoch, in_weights_file):
-        self.eval()
+    def test(self, epoch, in_weights_file, out_recon_folder):
+        # self.train()
         val_loss = 0
         samples_cnt = 0
-        self.load_state_dict(torch.load(in_weights_file))
+        # self.load_state_dict(torch.load(in_weights_file))
         with torch.no_grad():
-            for batch_idx, (inputs, _, _, _) in enumerate(self.test_loader):
+            for batch_idx, (inputs, _, _, _) in enumerate(self.val_loader):
                 inputs = inputs.to(self.device)
                 inputs = inputs / 255
                 recon_batch, mu, logvar = self(inputs)
                 loss = self.loss_function(recon_batch, inputs, mu, logvar).item() 
-                print(loss)
                 val_loss += loss
-                samples_cnt += inputs.size(0)
+                samples_cnt += 1
                 if batch_idx == 0:
                     save_image(
                         inputs,
-                        f"{self.model_name}/input_epoch_{str(epoch)}.png",
+                        f"{self.model_name}/{out_recon_folder}/input_epoch_{str(epoch)}.png",
                         nrow=8,
                     )
                     save_image(
                         recon_batch,
-                        f"{self.model_name}/reconstruction_epoch_{str(epoch)}.png",
+                        f"{self.model_name}/{out_recon_folder}/reconstruction_epoch_{str(epoch)}.png",
                         nrow=8,
                     )
-                if batch_idx >= 25:
+                if batch_idx == 25:
                     break
-
-        print(batch_idx, len(self.test_loader), f"ValLoss: {val_loss/samples_cnt:f}")
-        self.history["val_loss"].append(val_loss / samples_cnt)
-
+        val_loss /= samples_cnt
+        print(f"ValLoss: {val_loss}")
+        wandb.log({"End of Epoch Val Loss": val_loss})
         # sampling
         save_image(
             self.sampling(),
@@ -235,6 +239,7 @@ def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--out_weights_file", type=str, default="vae_weights.pt")
     parser.add_argument("--in_weights_file", type=str, default="vae_weights.pt")
+    parser.add_argument("--out_recon_folder", type=str, default="test_recons")
     args = parser.parse_args()
     return args
 
@@ -242,8 +247,11 @@ def main():
     net = VAE("latteart-recon")
     net.init_model()
     args = get_args()
-    # net.fit_train(0, args.out_weights_file)
-    net.test(0, args.in_weights_file)
+    for i in range(30):
+        net.fit_train(i, args.out_weights_file)
+        with torch.no_grad():
+            net.test(i, args.in_weights_file, args.out_recon_folder)
+            torch.cuda.empty_cache()
     # net.save_history()
 
 

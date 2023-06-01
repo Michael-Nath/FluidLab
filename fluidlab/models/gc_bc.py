@@ -1,6 +1,7 @@
 # Goal Conditioned Behavior Cloning (GCBC) Agent
 
 import torch
+import wandb
 import torch.nn as nn
 import torch.optim as optim
 import torch.distributions as distributions
@@ -82,11 +83,12 @@ class GCBCAgent(nn.Module):
 
 def train(out_weights_file):
     train = NumPyTrajectoryDataset("npy_trajs", train=True)
-    print(len(train))
+    
     train_loader = torch.utils.data.DataLoader(
-        train, batch_size=64, shuffle=True, num_workers=4
+        train, batch_size=64, shuffle=True, num_workers=2
     )
     agent = GCBCAgent(3)
+    agent.load_state_dict(torch.load("fluidlab/models/weights/gcbc_weights_no_padded_acs.pt"))
     gcbc_optim = optim.Adam(
         itertools.chain(
             agent.conv_layers.parameters(),
@@ -101,7 +103,8 @@ def train(out_weights_file):
         action = action.detach().to(device)
         log_probs = dist.log_prob(action)
         loss = -torch.sum(log_probs, dim=1).mean()
-        print(loss)
+        wandb.log({"train_loss": loss})
+        wandb.log({'log_prob': -loss})
         if loss < 0.3:
             torch.save(agent.state_dict(), out_weights_file)
             return
@@ -121,4 +124,7 @@ def get_args():
 if __name__ == "__main__":
     args = get_args()
     print(args)
+    run = wandb.init(
+        project="gcbc-training-fluid-manip"
+    )
     train(out_weights_file=args.out_weights_file)
