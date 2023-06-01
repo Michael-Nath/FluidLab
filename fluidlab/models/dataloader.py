@@ -7,7 +7,7 @@ from torch.utils.data import Dataset, DataLoader
 
 MAX_N_TRAJS = 2500
 N_TRAJS_PER_FILE = 500
-N_TSTEPS_PER_TRAJ = 330
+N_TSTEPS_PER_TRAJ = 250
 EXP_NAME = "exp_latteart"
 AC_DIM = 3
 
@@ -90,7 +90,7 @@ class NumPyTrajectoryDataset(Dataset):
         self.trajs_dir = trajs_dir
         self.offset = 0
         if not train:
-            self.offset = 1250
+            self.offset = MAX_N_TRAJS // 2
         self.prefix = "traj_"
 
     def __len__(self):
