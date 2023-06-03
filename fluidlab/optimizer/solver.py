@@ -46,24 +46,29 @@ class Solver:
             taichi_env.step(action)
             action = action if action is not None else [0] * 3
             if test:
-                self.logger.write_traj(action, sim_state, img, iteration, i)  
+                self.logger.write_traj(action, sim_state, img, iteration, i)
             if not test:
                 sim_state_matrix.append(sim_state)
                 action_matrix.append(action if action is not None else [0] * 3)
                 img_obs_matrix.append(self.logger.resize_img(img))
             self.logger.write_img(img, iteration, i)
         if not test:
-            np.save(f"{self.logger.traj_writer.trajs_fname}/traj_{iteration:04d}_a.npy", action_matrix)
-            np.save(f"{self.logger.traj_writer.trajs_fname}/traj_{iteration:04d}_o.npy", img_obs_matrix)
+            np.save(
+                f"{self.logger.traj_writer.trajs_fname}/traj_{iteration:04d}_a.npy",
+                action_matrix,
+            )
+            np.save(
+                f"{self.logger.traj_writer.trajs_fname}/traj_{iteration:04d}_o.npy",
+                img_obs_matrix,
+            )
             return
         else:
             return
-    
-    def train_bc(self, epoch, out_weights_file, in_trajs_file):
+
+    def train_bc(self, epoch, out_weights_file, in_trajs_file, lookahead_amnt):
         self.agent.train()
-        train = NumPyTrajectoryDataset(in_trajs_file, train=True)
+        train = NumPyTrajectoryDataset(in_trajs_file, train=True, lookahead_amnt=lookahead_amnt)
         print(f"\nEpoch: {epoch+1:d} {datetime.now()}")
-        print(in_trajs_file)
         train_loader = torch.utils.data.DataLoader(
             train, batch_size=64, shuffle=True, num_workers=2
         )
@@ -74,9 +79,9 @@ class Solver:
                 [self.agent.logstd],
             )
         )
-        for batch_idx, (img_obs, img_obs_next, action, _) in enumerate(train_loader):
+        for batch_idx, (img_obs, goal_img_obs, action, _) in enumerate(train_loader):
             gcbc_optim.zero_grad()
-            inpt = torch.cat((img_obs, img_obs_next), 1).to(self.device)
+            inpt = torch.cat((img_obs, goal_img_obs), 1).to(self.device)
             inpt = inpt.type("torch.cuda.FloatTensor")
             dist = self.agent.forward(inpt)
             action = action.detach().to(self.device)
@@ -88,22 +93,26 @@ class Solver:
             if batch_idx % 100 == 0:
                 torch.save(self.agent.state_dict(), out_weights_file)
             gcbc_optim.step()
-            if batch_idx == 1:
+            if batch_idx == 100:
                 break
+            break
 
-    def eval_bc(self, epoch, trajs_file):
+    def eval_bc(self, epoch, trajs_file, lookahead_amnt):
         self.agent.eval()
         taichi_env = self.env.taichi_env
         f = File(trajs_file, driver="family")
-        traj_keys = list(f["exp_latteart"].keys())
+        traj_keys = np.array(list(f["exp_latteart"].keys()))
+        sampled_trajs = np.random.choice(traj_keys, size=100)
         val_loss = 0
         cnt = 0
-        for traj in traj_keys:
+        for traj in sampled_trajs:
             tsteps = f["exp_latteart"][traj]
-            tsteps_keys = list(tsteps.keys())
+            tsteps_keys = np.array(list(tsteps.keys()))
+            tsteps_keys_adj = tsteps_keys[:-lookahead_amnt]
+            sampled_tsteps_idxs = np.random.choice(len(tsteps_keys_adj), 10)
             traj_loss = 0
-            for i in range(len(tsteps_keys) - 1):
-                tstep_key = tsteps_keys[i]
+            for i in sampled_tsteps_idxs:
+                tstep_key = tsteps_keys_adj[i]
                 tstep = tsteps[tstep_key]
                 loaded_sim_state = dict(tstep["sim_state"])
                 taichi_env_state = taichi_env.get_state()
@@ -116,12 +125,12 @@ class Solver:
                 loaded_sim_state["agent"] = taichi_env_state["state"]["agent"]
                 taichi_env.set_state(loaded_sim_state)
                 # Preparing input for BC policy
-                next_tstep = tsteps[tsteps_keys[i + 1]]
+                next_tstep = tsteps[tsteps_keys[i + lookahead_amnt]]
                 cur_img_obs = taichi_env.render("rgb_array")
                 cur_img_obs = torch.Tensor(self.logger.resize_img(cur_img_obs))
                 goal_img_obs = torch.Tensor(next_tstep["img_obs"][:])
                 cur_img_obs = cur_img_obs.movedim(2, 0)
-                goal_img_obs = goal_img_obs.movedim(2,0)
+                goal_img_obs = goal_img_obs.movedim(2, 0)
                 with torch.no_grad():
                     inpt = torch.cat((cur_img_obs, goal_img_obs), 0).to(self.device)
                     inpt = inpt.type("torch.cuda.FloatTensor")
@@ -254,9 +263,18 @@ def run_bc(env, logger, cfg, weights_file, trajs_file):
     solver = Solver(env, logger, cfg)
     solver.run_bc(weights_file, trajs_file)
 
-def train_bc(env, logger, cfg, out_weights_file, in_trajs_file_train, in_trajs_file_eval):
+
+def train_bc(
+    env,
+    logger,
+    cfg,
+    out_weights_file,
+    in_trajs_file_train,
+    in_trajs_file_eval,
+    lookahead_amnt,
+):
     wandb.init(project="gcbc-training-fluid-manip")
     solver = Solver(env, logger, cfg)
-    for i in range(5):
-        solver.train_bc(i, out_weights_file, in_trajs_file_train)
-        solver.eval_bc(i, in_trajs_file_eval)
+    for i in range(10):
+        solver.train_bc(i, out_weights_file, in_trajs_file_train, lookahead_amnt)
+        solver.eval_bc(i, in_trajs_file_eval, lookahead_amnt)

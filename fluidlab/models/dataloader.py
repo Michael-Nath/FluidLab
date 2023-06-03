@@ -86,7 +86,8 @@ class TrajectoryDataset(Dataset):
 
 
 class NumPyTrajectoryDataset(Dataset):
-    def __init__(self, trajs_dir, train=True) -> None:
+    def __init__(self, trajs_dir, lookahead_amnt=1, train=True) -> None:
+        self.max_lookahead_amnt = lookahead_amnt
         self.trajs_dir = trajs_dir
         self.offset = 0
         if not train:
@@ -105,11 +106,15 @@ class NumPyTrajectoryDataset(Dataset):
         f_a = np.load(f"{path}/{self.prefix}{traj:04d}_a.npy", mmap_mode="r")
         img_obs = f_o[adj_idx].copy()
         actions = f_a[adj_idx].copy()
-        next_img_obs = f_o[adj_idx].copy()
+        allowable_lookahead_amnt = min(N_TSTEPS_PER_TRAJ - adj_idx - 1, self.max_lookahead_amnt)
+        if allowable_lookahead_amnt == 0:
+            sampled_lookahead_amnt = 0
+        else:
+            sampled_lookahead_amnt = np.random.randint(1, allowable_lookahead_amnt + 1)
+        goal_img_obs = f_o[adj_idx + sampled_lookahead_amnt].copy()
         img_obs = np.transpose(img_obs, (2, 0, 1))
-        next_img_obs = np.transpose(next_img_obs, (2, 0, 1))
-        return img_obs, next_img_obs, actions, []
-
+        goal_img_obs = np.transpose(goal_img_obs, (2, 0, 1))
+        return img_obs, goal_img_obs, actions, []        
 
 def time_dataloading(batch_size):
     train = NumPyTrajectoryDataset("npy_trajs", train=True)
