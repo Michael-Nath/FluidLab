@@ -1,6 +1,7 @@
 # Goal Conditioned Behavior Cloning (GCBC) Agent
 
 import torch
+import datetime
 import wandb
 import torch.nn as nn
 import torch.optim as optim
@@ -81,14 +82,16 @@ class GCBCAgent(nn.Module):
         return pred_ac_na.to(self.device)
 
 
-def train(out_weights_file):
+def train(epoch, out_weights_file):
     train = NumPyTrajectoryDataset("npy_trajs", train=True)
-    
+    print(f"\nEpoch: {epoch+1:d} {datetime.datetime.now()}")
     train_loader = torch.utils.data.DataLoader(
         train, batch_size=64, shuffle=True, num_workers=2
     )
     agent = GCBCAgent(3)
-    agent.load_state_dict(torch.load("fluidlab/models/weights/gcbc_weights_no_padded_acs.pt"))
+    agent.load_state_dict(
+        torch.load("fluidlab/models/weights/gcbc_weights_no_padded_acs.pt")
+    )
     gcbc_optim = optim.Adam(
         itertools.chain(
             agent.conv_layers.parameters(),
@@ -97,22 +100,21 @@ def train(out_weights_file):
         )
     )
     for batch_idx, (img_obs, img_obs_next, action, _) in enumerate(train_loader):
+        gcbc_optim.zero_grad()
         inpt = torch.cat((img_obs, img_obs_next), 1)
-        inpt = inpt.type('torch.FloatTensor')
+        inpt = inpt.type("torch.FloatTensor")
         dist = agent.forward(inpt)
         action = action.detach().to(device)
         log_probs = dist.log_prob(action)
         loss = -torch.sum(log_probs, dim=1).mean()
         wandb.log({"train_loss": loss})
-        wandb.log({'log_prob': -loss})
-        if loss < 0.3:
-            torch.save(agent.state_dict(), out_weights_file)
-            return
+        wandb.log({"log_prob": -loss})
         loss.backward()
         if batch_idx % 100 == 0:
             torch.save(agent.state_dict(), out_weights_file)
         gcbc_optim.step()
-
+        if batch_idx == 250:
+            break
 
 def get_args():
     parser = argparse.ArgumentParser()
@@ -124,7 +126,6 @@ def get_args():
 if __name__ == "__main__":
     args = get_args()
     print(args)
-    run = wandb.init(
-        project="gcbc-training-fluid-manip"
-    )
-    train(out_weights_file=args.out_weights_file)
+    run = wandb.init(project="gcbc-training-fluid-manip")
+    for epoch in range(30):
+        train(epoch, out_weights_file=args.out_weights_file)

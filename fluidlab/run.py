@@ -8,7 +8,7 @@ import numpy as np
 import fluidlab.envs
 from fluidlab.envs.fluid_env import FluidEnv
 from fluidlab.utils.logger import Logger
-from fluidlab.optimizer.solver import solve_policy, gen_trajs_from_policy, run_bc
+from fluidlab.optimizer.solver import solve_policy, gen_trajs_from_policy, train_bc, run_bc
 from fluidlab.optimizer.recorder import record_target, replay_policy, replay_target
 from fluidlab.utils.config import load_config
 
@@ -29,9 +29,10 @@ def get_args():
     parser.add_argument("--out_ds", type=str, default="trajs.hdf5")
     parser.add_argument("--start_iter", type=int, default=0)
     parser.add_argument("--test", action="store_true")
-    parser.add_argument("--in_weights_file", type=str, default="gcbc_weights.pt")
-    parser.add_argument("--in_trajs_file", type=str, default="data/trajs0000_0500_%d.hdf5")
-
+    parser.add_argument("--in_weights_file", type=str, default="fluidlab/models/weights/gcbc_weights_no_padded_acs.pt")
+    parser.add_argument("--eval_trajs_file", type=str, default="eval_trajs/eval_trajs_0000_0049_%d.hdf5")
+    parser.add_argument("--train_trajs_folder", type=str, default="trajs_no_padded_acs")
+    parser.add_argument("--out_weights_file", type=str, default="dummy_weights.pt")
     args = parser.parse_args()
 
     return args
@@ -80,12 +81,13 @@ def main2():
     cfg = None
     if args.cfg_file is not None:
         cfg = load_config(args.cfg_file)
-    logger = Logger(args.exp_name, "blooblah")
+    logger = Logger(args.exp_name, args.out_ds)
     if cfg is not None:
         env = gym.make(cfg.EXP.env_name, seed=cfg.EXP.seed, loss=False, loss_type="diff", renderer_type=args.renderer_type)
     else:
         env = gym.make(args.env_name, seed=args.seed, loss=False, loss_type="diff", renderer_type=args.renderer_type)
-    run_bc(env, logger, cfg, args.in_weights_file, args.in_trajs_file)
+    # run_bc(env, logger, cfg, args.in_weights_file, args.in_trajs_file)
+    train_bc(env, logger, cfg, args.out_weights_file, args.train_trajs_folder, args.eval_trajs_file)
     
 
 

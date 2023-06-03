@@ -79,7 +79,7 @@ class Decoder(nn.Module):
 
 
 class VAE(nn.Module):
-    def __init__(self, dataset):
+    def __init__(self, model_name, dataset):
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         super().__init__()
         self.n_latent_features = 32
@@ -103,7 +103,7 @@ class VAE(nn.Module):
         self.history = {"loss": [], "val_loss": []}
 
         # model name
-        self.model_name = dataset
+        self.model_name = model_name
         if not os.path.exists(self.model_name):
             os.mkdir(self.model_name)
 
@@ -136,18 +136,19 @@ class VAE(nn.Module):
         return d, mu, logvar
 
     def load_data(self, dataset):
-        train = NumPyTrajectoryDataset("npy_trajs", train=True)
+        train = NumPyTrajectoryDataset(dataset, train=True)
         train, val = random_split(train, [0.7, 0.3])
-        test = NumPyTrajectoryDataset("npy_trajs", train=False)
+        test = NumPyTrajectoryDataset(dataset, train=False)
         train_loader = torch.utils.data.DataLoader(
-            train, batch_size=64, shuffle=True, num_workers=4
+            train, batch_size=64, shuffle=True, num_workers=2
         )
         val_loader = torch.utils.data.DataLoader(
-            val, batch_size=64, shuffle=True, num_workers=0
+            val, batch_size=64, shuffle=True, num_workers=2
         )
-        test_loader = torch.utils.data.DataLoader(
-            test, batch_size=32, shuffle=True, num_workers=2
-        )
+        # test_loader = torch.utils.data.DataLoader(
+        #     test, batch_size=32, shuffle=True, num_workers=2
+        # )
+        test_loader = None
         return train_loader, val_loader, test_loader
 
     def loss_function(self, recon_x, x, mu, logvar):
@@ -174,7 +175,7 @@ class VAE(nn.Module):
         print(f"\nEpoch: {epoch+1:d} {datetime.datetime.now()}")
         train_loss = []
         samples_cnt = 0
-        for batch_idx, (inputs, _, a, _) in enumerate(self.test_loader):
+        for batch_idx, (inputs, _, _, _) in enumerate(self.train_loader):
             self.optimizer.zero_grad()
             inputs = inputs / 255
             inputs = inputs.to(self.device)
@@ -184,16 +185,15 @@ class VAE(nn.Module):
             wandb.log({"train_loss": loss})
             self.optimizer.step()
             train_loss.append(loss.item())
-            break
             samples_cnt += inputs.size(0)
-            if batch_idx % 25 == 0:
-                torch.save(self.state_dict(), out_weights_file)
             if batch_idx == 250:
                 break
-        print(f"Epoch {epoch} | End of Epoch Train Loss: {loss.item()}")
-        # wandb.log({"End of Epoch Loss": loss.item()})
+        print(f"Epoch {epoch + 1:d} | End of Epoch Train Loss: {loss.item()}")
+        wandb.log({"End of Epoch Loss": loss.item()})
 
     def test(self, epoch, in_weights_file, out_recon_folder):
+        if not os.path.exists(f"{self.model_name}/{out_recon_folder}"):
+            os.mkdir(f"{self.model_name}/{out_recon_folder}")
         # self.train()
         val_loss = 0
         samples_cnt = 0
@@ -240,20 +240,21 @@ def get_args():
     parser.add_argument("--out_weights_file", type=str, default="vae_weights.pt")
     parser.add_argument("--in_weights_file", type=str, default="vae_weights.pt")
     parser.add_argument("--out_recon_folder", type=str, default="test_recons")
+    parser.add_argument("--in_trajs_file", type=str)
     args = parser.parse_args()
     return args
 
 def main():
-    net = VAE("latteart-recon")
-    net.init_model()
     args = get_args()
-    for i in range(30):
+    net.init_model()
+    net = VAE("latteart-recon", args.in_trajs_file)
+    for i in range(50):
         net.fit_train(i, args.out_weights_file)
+        torch.save(net.state_dict(), args.out_weights_file)
         with torch.no_grad():
             net.test(i, args.in_weights_file, args.out_recon_folder)
             torch.cuda.empty_cache()
     # net.save_history()
-
-
+    
 if __name__ == "__main__":
     main()
