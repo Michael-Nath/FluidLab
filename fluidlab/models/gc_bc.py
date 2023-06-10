@@ -7,6 +7,7 @@ import torch.nn as nn
 import torch.optim as optim
 import torch.distributions as distributions
 from fluidlab.models.dataloader import NumPyTrajectoryDataset
+from fluidlab.models.vae import VAE
 import itertools
 import argparse
 
@@ -66,7 +67,15 @@ class GCBCAgent(nn.Module):
         self.conv_layers = self.build_conv_layers_()
         self.mlp_layers = self.build_mlp_layers_()
 
-    def forward(self, x) -> distributions.Distribution:
+    def forward(self, cur_img_obs, goal_img_obs) -> distributions.Distribution:
+        cur_img_obs = cur_img_obs.to(self.device).type("torch.cuda.FloatTensor")
+        goal_img_obs = goal_img_obs.to(self.device).type("torch.cuda.FloatTensor")
+        if len(cur_img_obs.size()) != 4:
+            cur_img_obs = cur_img_obs.unsqueeze(0)
+        if len(goal_img_obs.size()) != 4:
+            goal_img_obs = goal_img_obs.unsqueeze(0)
+        x = torch.cat((cur_img_obs, goal_img_obs), 1).to(self.device)
+        x = x.type("torch.cuda.FloatTensor")
         means = self.mlp_layers(self.conv_layers(x)).to(self.device)
         return distributions.Normal(means, torch.exp(self.logstd))
 
@@ -81,44 +90,79 @@ class GCBCAgent(nn.Module):
         pred_ac_na = dist.sample()
         return pred_ac_na.to(self.device)
 
+class GCBCVAEAgent(nn.Module):
+    
+    def build_mlp_layers_(self, in_dim) -> nn.Sequential:
+        l1 = MLPModule(in_dim, 128)
+        l2 = MLPModule(128, 128)
+        l3 = MLPModule(
+            128, self.ac_dim
+        )  # output a mean vector corresponding to the number of action components
+        return nn.Sequential(l1, l2, l3) 
+    
+    def __init__(self, ac_dim, in_vae_weights):
+        self.ac_dim = ac_dim
+        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        super().__init__()
+        self.logstd = nn.Parameter(torch.zeros((ac_dim), device=self.device))
+        self.vae = VAE("blah", "blah", False, 32)
+        self.vae.load_state_dict(torch.load(in_vae_weights))
+        self.vae.eval()
+        self.mlp_layers = self.build_mlp_layers_(2 * self.vae.n_latent_features)
+        
+    def forward(self, cur_img_obs, goal_img_obs) -> distributions.Distribution:
+        cur_img_obs = cur_img_obs.to(self.device).type("torch.cuda.FloatTensor")
+        goal_img_obs = goal_img_obs.to(self.device).type("torch.cuda.FloatTensor")
+        if len(cur_img_obs.size()) != 4:
+            cur_img_obs = cur_img_obs.unsqueeze(0)
+        if len(goal_img_obs.size()) != 4:
+            goal_img_obs = goal_img_obs.unsqueeze(0)
+        with torch.no_grad():
+            z_cur, _, _ = self.vae.forward(cur_img_obs, encode_only=True) 
+            z_goal, _, _ = self.vae.forward(goal_img_obs, encode_only=True) 
+        z = torch.cat((z_cur, z_goal), dim=1)
+        means = self.mlp_layers(z).to(self.device)
+        return distributions.Normal(means, torch.exp(self.logstd))
+    
+    
 
-def train(epoch, out_weights_file):
-    train = NumPyTrajectoryDataset("npy_trajs", train=True)
+
+def train(epoch, out_weights_file, agent_type="gcbc"):
+    train = NumPyTrajectoryDataset("trajs_no_padded_acs", train=True)
     print(f"\nEpoch: {epoch+1:d} {datetime.datetime.now()}")
     train_loader = torch.utils.data.DataLoader(
         train, batch_size=64, shuffle=True, num_workers=2
     )
-    agent = GCBCAgent(3)
-    agent.load_state_dict(
-        torch.load("fluidlab/models/weights/gcbc_weights_no_padded_acs.pt")
-    )
+    if agent_type == "gcbc":
+        agent = GCBCAgent(3)
+    elif agent_type == "gcbc_vae":
+        agent = GCBCVAEAgent(3)
+    else:
+        raise ValueError
+    
+    
     gcbc_optim = optim.Adam(
-        itertools.chain(
-            agent.conv_layers.parameters(),
-            agent.mlp_layers.parameters(),
-            [agent.logstd],
-        )
+        agent.parameters()
     )
+    
+    agent = agent.to(device)
     for batch_idx, (img_obs, img_obs_next, action, _) in enumerate(train_loader):
         gcbc_optim.zero_grad()
-        inpt = torch.cat((img_obs, img_obs_next), 1)
-        inpt = inpt.type("torch.FloatTensor")
-        dist = agent.forward(inpt)
+        dist = agent.forward(img_obs, img_obs_next)
         action = action.detach().to(device)
         log_probs = dist.log_prob(action)
         loss = -torch.sum(log_probs, dim=1).mean()
         wandb.log({"train_loss": loss})
         wandb.log({"log_prob": -loss})
         loss.backward()
-        if batch_idx % 100 == 0:
-            torch.save(agent.state_dict(), out_weights_file)
         gcbc_optim.step()
-        if batch_idx == 250:
+        if batch_idx == 100:
             break
 
 def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--out_weights_file", type=str, default="gcbc_weights.pt")
+    parser.add_argument("--in_vae_weights", type=str)
     args = parser.parse_args()
     return args
 
@@ -126,6 +170,6 @@ def get_args():
 if __name__ == "__main__":
     args = get_args()
     print(args)
-    run = wandb.init(project="gcbc-training-fluid-manip")
-    for epoch in range(30):
-        train(epoch, out_weights_file=args.out_weights_file)
+    run = wandb.init(project="gcbc_vae-training-fluid-manip")
+    for epoch in range(15):
+        train(epoch, out_weights_file=args.out_weights_file, agent_type="gcbc_vae")

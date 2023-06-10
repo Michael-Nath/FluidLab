@@ -19,7 +19,7 @@ class SummaryWriter:
 
 class ImageWriter:
     def __init__(self, exp_name):
-        self.dir = os.path.join(get_src_dir(), '..', 'logs', 'imgs', exp_name)
+        self.dir = os.path.join(get_src_dir(), '..', 'logs', 'goal_traj', exp_name)
 
     def write(self, img, iteration, step):
         img_dir = os.path.join(self.dir, f'{iteration}')

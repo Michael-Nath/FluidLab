@@ -142,11 +142,12 @@ class LatteArtEnv(FluidEnv):
 
     def trainable_policy(self, optim_cfg, init_range):
         return LatteArtPolicy(optim_cfg, init_range, self.agent.action_dim, self.horizon_action, self.action_range)
-    def random_policy(self, init_range):
+    def random_policy(self):
         # return RandomGaussianPolicy(init_range, self.agent.action_dim, self.horizon_action)
         return CorrelatedNoisePolicy(self.agent.action_dim, self.horizon_action)
-    def bc_policy(self, weights_file):
-        return LoadedGCBCPolicy(self.agent.action_dim, weights_file)
+    def bc_policy(self, goal_img_obs, weights_file, agent_type):
+        assert weights_file is not None
+        return LoadedGCBCPolicy(self.agent.action_dim, goal_img_obs, weights_file, agent_type)
     def get_loss(self, pred_a, actual_a):
         actual_a = torch.Tensor(actual_a)
         mse = torch.nn.MSELoss()

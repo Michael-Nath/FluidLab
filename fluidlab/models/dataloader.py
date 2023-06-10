@@ -3,6 +3,7 @@ import time
 import torch
 import os
 import h5py
+from torchvision.utils import save_image
 from torch.utils.data import Dataset, DataLoader
 
 MAX_N_TRAJS = 2500
@@ -86,24 +87,35 @@ class TrajectoryDataset(Dataset):
 
 
 class NumPyTrajectoryDataset(Dataset):
-    def __init__(self, trajs_dir, lookahead_amnt=1, train=True) -> None:
+    def __init__(self, trajs_dir, lookahead_amnt=1, train=True, amnt_trajs_test=500) -> None:
         self.max_lookahead_amnt = lookahead_amnt
         self.trajs_dir = trajs_dir
+        self.cache = dict()
         self.offset = 0
+        self.train = train
         if not train:
-            self.offset = MAX_N_TRAJS // 2
+            self.offset = MAX_N_TRAJS - amnt_trajs_test
         self.prefix = "traj_"
+        self.amnt_trajs_test = amnt_trajs_test
 
     def __len__(self):
-        return (MAX_N_TRAJS * N_TSTEPS_PER_TRAJ) // 2
+        if self.train:
+            return (MAX_N_TRAJS - self.amnt_trajs_test) * N_TSTEPS_PER_TRAJ
+        else:
+            return self.amnt_trajs_test * N_TSTEPS_PER_TRAJ
 
     def __getitem__(self, idx):
         traj = idx // N_TSTEPS_PER_TRAJ
         traj += self.offset
         adj_idx = idx % N_TSTEPS_PER_TRAJ
         path = os.path.join("fluidlab/", "..", self.trajs_dir)
-        f_o = np.load(f"{path}/{self.prefix}{traj:04d}_o.npy", mmap_mode="r")
-        f_a = np.load(f"{path}/{self.prefix}{traj:04d}_a.npy", mmap_mode="r")
+        f_prefix = f"{path}/{self.prefix}{traj:04d}" 
+        if f_prefix not in self.cache.keys():
+            f_o = np.load(f"{path}/{self.prefix}{traj:04d}_o.npy", mmap_mode="r")
+            f_a = np.load(f"{path}/{self.prefix}{traj:04d}_a.npy", mmap_mode="r")
+            # self.cache[f_prefix] = (f_o, f_a)
+        else:
+            f_o, f_a = self.cache[f_prefix]
         img_obs = f_o[adj_idx].copy()
         actions = f_a[adj_idx].copy()
         allowable_lookahead_amnt = min(N_TSTEPS_PER_TRAJ - adj_idx - 1, self.max_lookahead_amnt)
@@ -114,6 +126,8 @@ class NumPyTrajectoryDataset(Dataset):
         goal_img_obs = f_o[adj_idx + sampled_lookahead_amnt].copy()
         img_obs = np.transpose(img_obs, (2, 0, 1))
         goal_img_obs = np.transpose(goal_img_obs, (2, 0, 1))
+        img_obs = (img_obs.astype(float) / 255).astype("float64")
+        goal_img_obs = (goal_img_obs.astype(float) / 255).astype("float64")
         return img_obs, goal_img_obs, actions, []        
 
 def time_dataloading(batch_size):
@@ -132,12 +146,24 @@ def time_dataloading(batch_size):
         i += 1
         a = time.time()
 
+def get_mean_img():
+    train = NumPyTrajectoryDataset("low_var_trajs", lookahead_amnt=1, train=True)
+    mean_imgs = []
+    train_loader = torch.utils.data.DataLoader(train, batch_size=256, shuffle=True, num_workers=2)
+    for batch_idx, (img_obs, _, _, _,) in enumerate(train_loader):
+        img_obs = torch.Tensor(img_obs)
+        mean_img = img_obs.mean(dim=0)
+        mean_imgs.append(mean_img)
+        if batch_idx == 16:
+            break
+    save_image(mean_imgs, "latteart-recon/mean_imgs/mean_imgs.png", nrow=4)
 
 if __name__ == "__main__":
-    ds = NumPyTrajectoryDataset("trajs")
+    # ds = NumPyTrajectoryDataset("trajs")
     # train_dataloader = DataLoader(ds, batch_size=2, num_workers=1)
     # img_obs_batch, action_batch, sim_state_batch = next(iter(train_dataloader))
 
-    time_dataloading(batch_size=256)
+    # time_dataloading(batch_size=256)
+    get_mean_img()
     # for f in ds.traj_paths:
     #     f.close()

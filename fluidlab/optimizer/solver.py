@@ -13,17 +13,23 @@ import torch.optim as optim
 
 # from fluidlab.fluidengine.taichi_env import TaichiEnv
 from fluidlab.models.dataloader import NumPyTrajectoryDataset
-from fluidlab.models.gc_bc import GCBCAgent
+from fluidlab.models.gc_bc import GCBCAgent, GCBCVAEAgent
+
+from PIL import Image
 
 class Solver:
-    def __init__(self, env, logger=None, cfg=None):
+    def __init__(self, env, logger=None, cfg=None, agent_type="gcbc", in_vae_weights=None):
         self.cfg = cfg
         self.env = env
         self.target_file = env.target_file
         self.logger = logger
-        self.agent = GCBCAgent(3)
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        if agent_type == "gcbc":
+            self.agent = GCBCAgent(3)
+        elif agent_type == "gcbc_vae":
+            self.agent = GCBCVAEAgent(3, in_vae_weights)
         self.agent = self.agent.to(self.device)
+        # self.agent = None
 
     def create_trajs(self, iteration, test=False):
         taichi_env = self.env.taichi_env
@@ -32,13 +38,13 @@ class Solver:
         horizon_action = self.env.horizon_action
         init_state = taichi_env.get_state()
         taichi_env.set_state(**init_state)
-        taichi_env.apply_agent_action_p(policy.get_actions_p())
+        taichi_env.apply_agent_action_p(policy.get_action())
         action_matrix = []
         sim_state_matrix = []
         img_obs_matrix = []
         for i in range(horizon):
             if i < horizon_action:
-                action = policy.get_action_v(i, agent=taichi_env.agent, update=True)
+                action = policy.get_action(i=i, agent=taichi_env.agent, update=True)
             else:
                 break
             sim_state = self.env.taichi_env.get_state_RL()
@@ -65,37 +71,30 @@ class Solver:
         else:
             return
 
-    def train_bc(self, epoch, out_weights_file, in_trajs_file, lookahead_amnt):
+    def train_bc(self, epoch, in_trajs_file, lookahead_amnt):
         self.agent.train()
-        train = NumPyTrajectoryDataset(in_trajs_file, train=True, lookahead_amnt=lookahead_amnt)
+        train = NumPyTrajectoryDataset(
+            in_trajs_file, train=True, lookahead_amnt=lookahead_amnt
+        )
         print(f"\nEpoch: {epoch+1:d} {datetime.now()}")
         train_loader = torch.utils.data.DataLoader(
             train, batch_size=64, shuffle=True, num_workers=2
         )
         gcbc_optim = optim.Adam(
-            itertools.chain(
-                self.agent.conv_layers.parameters(),
-                self.agent.mlp_layers.parameters(),
-                [self.agent.logstd],
-            )
+            self.agent.parameters()
         )
         for batch_idx, (img_obs, goal_img_obs, action, _) in enumerate(train_loader):
             gcbc_optim.zero_grad()
-            inpt = torch.cat((img_obs, goal_img_obs), 1).to(self.device)
-            inpt = inpt.type("torch.cuda.FloatTensor")
-            dist = self.agent.forward(inpt)
+            dist = self.agent.forward(img_obs, goal_img_obs)
             action = action.detach().to(self.device)
             log_probs = dist.log_prob(action)
             loss = -torch.sum(log_probs, dim=1).mean().to(self.device)
             wandb.log({"train_loss": loss})
             wandb.log({"log_prob": -loss})
             loss.backward()
-            if batch_idx % 100 == 0:
-                torch.save(self.agent.state_dict(), out_weights_file)
             gcbc_optim.step()
-            if batch_idx == 100:
+            if batch_idx == 250:
                 break
-            break
 
     def eval_bc(self, epoch, trajs_file, lookahead_amnt):
         self.agent.eval()
@@ -132,10 +131,10 @@ class Solver:
                 cur_img_obs = cur_img_obs.movedim(2, 0)
                 goal_img_obs = goal_img_obs.movedim(2, 0)
                 with torch.no_grad():
-                    inpt = torch.cat((cur_img_obs, goal_img_obs), 0).to(self.device)
-                    inpt = inpt.type("torch.cuda.FloatTensor")
-                    inpt = inpt.unsqueeze(0)
-                    pred_a = self.agent.forward(inpt).sample()
+                    # inpt = torch.cat((cur_img_obs, goal_img_obs), 0).to(self.device)
+                    # inpt = inpt.type("torch.cuda.FloatTensor")
+                    # inpt = inpt.unsqueeze(0)
+                    pred_a = self.agent.forward(cur_img_obs, goal_img_obs).sample()
                 actual_a = tstep["action"][:]
                 pred_a = pred_a[0].detach().cpu()
                 loss = self.env.get_loss(pred_a, actual_a)
@@ -218,10 +217,8 @@ class Solver:
     def render_policy(
         self, taichi_env, init_state, policy, horizon, horizon_action, iteration
     ):
-        if is_on_server():
-            return
-
         taichi_env.set_state(**init_state)
+        
         taichi_env.apply_agent_action_p(policy.get_actions_p())
 
         for i in range(horizon):
@@ -239,7 +236,38 @@ class Solver:
                 self.logger.write_img(img, iteration, i)
             else:
                 taichi_env.render("human")
-
+                
+    def run_policy(self, policy_name, in_weights_file=None, in_trajs_file=None):
+        taichi_env = self.env.taichi_env
+        horizon = self.env.horizon
+        if policy_name == "random":
+            policy = self.env.random_policy()
+        elif policy_name in ["gcbc", "gcbc_vae"]:
+            assert in_trajs_file is not None
+            goal_img_obs = Image.open("goals/0056.png")
+            goal_img_obs = np.asarray(goal_img_obs)
+            goal_img_obs = self.logger.resize_img(goal_img_obs)
+            policy = self.env.bc_policy(goal_img_obs, in_weights_file, policy_name)
+        horizon_action = self.env.horizon_action
+        init_state = taichi_env.get_state()
+        taichi_env.set_state(**init_state)
+        img = taichi_env.render("rgb_array")
+        img = self.logger.resize_img(img)
+        action = policy.get_action(cur_img_obs=img)
+        if torch.is_tensor(action):
+            action = action.cpu()
+        taichi_env.apply_agent_action_p(action)
+        for i in range(horizon):
+            img = taichi_env.render("rgb_array")
+            self.logger.write_img(img, "goals/0056/"+in_weights_file.split("/")[-1].split(".")[0], i)
+            if i < horizon_action:
+                cur_img_obs = self.logger.resize_img(img)
+                action = policy.get_action(cur_img_obs=cur_img_obs)
+                if (torch.is_tensor(action)):
+                    action = action.cpu()
+            else:
+                action = None
+            taichi_env.step(action)
 
 def solve_policy(env, logger, cfg):
     env.reset()
@@ -272,9 +300,20 @@ def train_bc(
     in_trajs_file_train,
     in_trajs_file_eval,
     lookahead_amnt,
+    agent_type="gcbc_vae",
+    in_vae_weights=None
 ):
-    wandb.init(project="gcbc-training-fluid-manip")
-    solver = Solver(env, logger, cfg)
-    for i in range(10):
-        solver.train_bc(i, out_weights_file, in_trajs_file_train, lookahead_amnt)
+    print(agent_type)
+    wandb.init(
+        project=f"{agent_type}-training-fluid-manip",
+        name=out_weights_file,
+        config={"Lookahead Amnt": lookahead_amnt, "# Training Epochs": 15},
+    )
+    solver = Solver(env, logger, cfg, agent_type, in_vae_weights)
+    for i in range(15):
+        solver.train_bc(i, in_trajs_file_train, lookahead_amnt)
+        torch.save(solver.agent.state_dict(), out_weights_file)
         solver.eval_bc(i, in_trajs_file_eval, lookahead_amnt)
+def run_policy(env, logger, cfg, policy_name, weights_file, in_trajs_file):
+    solver = Solver(env, logger, cfg)
+    solver.run_policy(policy_name=policy_name, in_weights_file=weights_file, in_trajs_file=in_trajs_file)

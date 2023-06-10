@@ -1,9 +1,11 @@
 import numpy as np
 from torch import load, cat, Tensor, no_grad
-from fluidlab.models.gc_bc import GCBCAgent
+from torch.cuda import is_available
+from fluidlab.models.gc_bc import GCBCAgent, GCBCVAEAgent
 from fluidlab.optimizer.optim import *
 from fluidlab.utils.misc import is_on_server
-if not is_on_server():
+
+if is_on_server():
     try:
         from pynput import keyboard, mouse
     except:
@@ -95,7 +97,7 @@ class MousePolicy:
         self.mouse_pos_last = None
         self.mouse_pressed  = False
         self.started        = False
-
+        from pynput import keyboard, mouse
         self.listener = mouse.Listener(
             on_move=self.on_move,
             on_click=self.on_click,
@@ -145,42 +147,51 @@ class RandomGaussianPolicy:
 
     def get_actions_p(self):
         return self.actions_p
+    def get_action(self, **kwargs):
+        i = kwargs["i"]
+        return self.actions_v[i]
 
 class CorrelatedNoisePolicy:
-    def __init__(self, action_dim, horizon, beta = 0.75, scale = 0.1):
+    def __init__(self, action_dim, horizon, beta = 0.10, scale = 0.10):
         self.horizon = horizon
         self.action_dim = action_dim
         self.beta = beta
         self.cov = np.eye(action_dim) * scale 
         self.n_t = 0
-    def get_action_v(self, i = 0, **kwargs):
+    def get_action(self, **kwargs):
         # Setup normal
-        u_t = np.random.multivariate_normal(np.zeros(self.action_dim), self.cov)
+        u_t = np.random.multivariate_normal(np.full(self.action_dim, 0.0), self.cov)
         # Calculate noise term
         self.n_t = self.beta * u_t + (1 - self.beta) * self.n_t
         # This noise represents our action because we are working with random action sequences.
         # However, we want our sampled actions to be smoothly correlated.
         return self.n_t
-    def get_actions_p(self, i = 0, **kwargs):
-        # For now, do not distinguish between these two kinds of actions
-        return self.get_action_v(i)
+    # def get_actions_p(self, **kwargs):
+    #     # For now, do not distinguish between these two kinds of actions
+    #     return self.get_action()
 
 class LoadedGCBCPolicy:
-    def __init__(self, action_dim, weights_file):
-        self.agent = GCBCAgent(action_dim)
+    def __init__(self, action_dim, goal_img_obs, weights_file, agent_type):
+        if agent_type not in ["gcbc", "gcbc_vae"]:
+            raise ValueError
+        if agent_type == "gcbc":
+            self.agent = GCBCAgent(action_dim)
+        else:
+            self.agent = GCBCVAEAgent(action_dim)
         self.agent.load_state_dict(load(weights_file))
-    def get_action(self, cur_img_obs, goal_img_obs):
+        self.agent.eval()
+        self.device = "cuda" if is_available() else "cpu"
+        self.agent = self.agent.to(self.device)
+        self.goal_img_obs = Tensor(goal_img_obs)
+        if (self.goal_img_obs.size()[0] != 3):
+            self.goal_img_obs = self.goal_img_obs.movedim(2, 0)
+    def get_action(self, **kwargs):
+        cur_img_obs = kwargs["cur_img_obs"]
         with no_grad():
             cur_img_obs = Tensor(cur_img_obs)
-            goal_img_obs = Tensor(goal_img_obs)
             if (cur_img_obs.size()[0] != 3):
                 cur_img_obs = cur_img_obs.movedim(2, 0)
-            if (goal_img_obs.size()[0] != 3):
-                goal_img_obs = goal_img_obs.movedim(2, 0)
-            x = cat((cur_img_obs, goal_img_obs), dim=0)
-            x = x.unsqueeze(0)
-            x = cat((x,x), dim=0)
-            dist = self.agent.forward(x)
+            dist = self.agent.forward(cur_img_obs, self.goal_img_obs)
             a = dist.sample()
             return a
 
