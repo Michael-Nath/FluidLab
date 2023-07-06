@@ -4,8 +4,9 @@ import torch
 import os
 import h5py
 from torchvision.utils import save_image
-from torch.utils.data import Dataset, DataLoader
-
+from torchvision.transforms import ToTensor
+from torch.utils.data import Dataset, DataLoader, SequentialSampler, BatchSampler
+import ffmpegio
 MAX_N_TRAJS = 2500
 N_TRAJS_PER_FILE = 500
 N_TSTEPS_PER_TRAJ = 250
@@ -124,11 +125,8 @@ class NumPyTrajectoryDataset(Dataset):
         else:
             sampled_lookahead_amnt = np.random.randint(1, allowable_lookahead_amnt + 1)
         goal_img_obs = f_o[adj_idx + sampled_lookahead_amnt].copy()
-        img_obs = np.transpose(img_obs, (2, 0, 1))
-        goal_img_obs = np.transpose(goal_img_obs, (2, 0, 1))
-        img_obs = (img_obs.astype(float) / 255).astype("float64")
-        goal_img_obs = (goal_img_obs.astype(float) / 255).astype("float64")
-        return img_obs, goal_img_obs, actions, []        
+        return img_obs, goal_img_obs, actions, []
+        return ToTensor()(img_obs), ToTensor()(goal_img_obs), actions, []        
 
 def time_dataloading(batch_size):
     train = NumPyTrajectoryDataset("npy_trajs", train=True)
@@ -158,12 +156,29 @@ def get_mean_img():
             break
     save_image(mean_imgs, "latteart-recon/mean_imgs/mean_imgs.png", nrow=4)
 
+def viz_trajs():
+    ds = NumPyTrajectoryDataset("low_var_trajs", lookahead_amnt=1, train=True, amnt_trajs_test=0)
+    max_tsteps = len(ds)
+    random_starts = np.random.choice(range(2500), 5, replace=False)
+    random_starts *= 250
+    for start in random_starts:
+        a = []
+        for i in range(250):
+            img, _, _, _ = ds[start + i]
+            a.append(img)
+        a = np.array(a)
+        ffmpegio.video.write(f"fluidlab/models/viz/movie_{start//250}.mp4", 60, a, show_log=True,overwrite=True)
+        print(f"Stored trajectory {start//250} at fluidlab/models/viz/movie_{start//250}.mp4!")
+    
+
+
 if __name__ == "__main__":
     # ds = NumPyTrajectoryDataset("trajs")
     # train_dataloader = DataLoader(ds, batch_size=2, num_workers=1)
     # img_obs_batch, action_batch, sim_state_batch = next(iter(train_dataloader))
 
     # time_dataloading(batch_size=256)
-    get_mean_img()
+    # get_mean_img()
     # for f in ds.traj_paths:
     #     f.close()
+    viz_trajs()

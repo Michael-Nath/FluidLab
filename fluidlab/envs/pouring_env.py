@@ -10,7 +10,7 @@ from fluidlab.fluidengine.taichi_env import TaichiEnv
 from fluidlab.fluidengine.losses import *
 
 class PouringEnv(FluidEnv):
-    def __init__(self, version, loss=True, loss_type='diff', seed=None):
+    def __init__(self, version, loss=True, loss_type='diff', seed=None, **kwargs):
 
         if seed is not None:
             self.seed(seed)
@@ -49,6 +49,7 @@ class PouringEnv(FluidEnv):
             center=(0.6, 0.53, 0.5),
             height=0.2,
             radius=0.18,
+            color=(0.1, 0.1, 0.1, 1),
             material=MILK,
         )
         self.taichi_env.add_body(
@@ -88,10 +89,11 @@ class PouringEnv(FluidEnv):
             weights={'dist': 1.0, 'attraction': 1.0}
         )
         
-    def demo_policy(self):
+    def demo_policy(self, user_input=False):
         init_p = np.array([0.6, 0.7, 0.5])
-        comp_actions_p = init_p
-        return KeyboardPolicy_wz(init_p, v_ang=0.015)
+        # comp_actions_p = init_p
+        # return KeyboardPolicy_wz(init_p, v_ang=0.015)
+        return DemoPouringPolicy(init_p)
 
     def trainable_policy(self, optim_cfg, init_range):
         return PouringPolicy(optim_cfg, init_range, self.agent.action_dim, self.horizon_action, self.action_range, fix_dim=[0, 1, 2, 3, 4])

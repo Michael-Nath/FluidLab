@@ -1,9 +1,10 @@
 import os
+import ffmpegio
 import cv2
 import numpy as np
 import taichi as ti
 import pickle as pkl
-from fluidlab.utils.misc import is_on_server
+from fluidlab.utils.misc import is_on_server, get_src_dir
 
 class Recorder:
     def __init__(self, env):
@@ -12,7 +13,8 @@ class Recorder:
         if self.target_file is not None:
             os.makedirs(os.path.dirname(self.target_file), exist_ok=True)
 
-    def record(self, user_input=False):
+    def record(self, path, exp_name="default", user_input=False):
+        print(f"exp_name is {exp_name}/{path}!")
         policy = self.env.demo_policy(user_input)
         taichi_env = self.env.taichi_env
 
@@ -32,8 +34,8 @@ class Recorder:
         
         save = True
         if save:
-            os.makedirs(f'./tmp/recorder', exist_ok=True)
-            
+            os.makedirs(f'./tmp/recorder/{exp_name}/{path}', exist_ok=True)
+        a = []
         for i in range(self.env.horizon):
             if i < self.env.horizon_action:
                 action = policy.get_action_v(i)
@@ -50,11 +52,14 @@ class Recorder:
 
             if save:
                 img = taichi_env.render('rgb_array')
-                cv2.imwrite(f'./tmp/recorder/{i:04d}.png', img[:, :, ::-1])
+                if i == self.env.horizon - 1:
+                    cv2.imwrite(f'./tmp/recorder/{exp_name}/{path}/output.png', img[:, :, ::-1])
+                a.append(img)
             else:
                 if not is_on_server():
                     taichi_env.render('human')
-
+        a = np.array(a)
+        ffmpegio.video.write(f'./tmp/recorder/{exp_name}/{path}/movie.mp4', 60, a, show_log=True,overwrite=True, pix_fmt="yuv420p")
         if self.target_file is not None:
             target['mat'] = taichi_env.simulator.particles_i.mat.to_numpy()
             if os.path.exists(self.target_file):
@@ -100,11 +105,10 @@ class Recorder:
                     taichi_env.render('human')
 
 
-def record_target(env, path=None, user_input=False):
+def record_target(env, exp_name=None, path=None, user_input=False):
     env.reset()
-
     recorder = Recorder(env)
-    recorder.record(user_input)
+    recorder.record(path, exp_name, user_input)
 
 def replay_target(env):
     env.reset()

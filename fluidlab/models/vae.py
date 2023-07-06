@@ -176,15 +176,14 @@ class VAE(nn.Module):
         test_loader = None
         return train_loader, val_loader, test_loader
 
-    def loss_function(self, recon_x, x, mu, logvar, variational=True, weighting=1):
-        if not variational:
-            KLD = 0
-        else:
-            KLD = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
-            KLD *= weighting
-            wandb.log({"KLD_LOSS": KLD})
+    def loss_function(self, recon_x, x, mu, logvar, weighting=0.5):
+        KLD = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
+        KLD *= weighting
         BCE = F.binary_cross_entropy(recon_x, x, size_average=True)
+        BCE *= (1 - weighting)
+        KLD *= weighting
         wandb.log({"MSE_LOSS": BCE})
+        wandb.log({"KLD_LOSS": KLD})
         return (BCE + KLD).cuda(self.device)
 
     def init_model(self):
@@ -196,7 +195,7 @@ class VAE(nn.Module):
         self.to(self.device)
 
     # Train
-    def fit_train(self, epoch, no_variational=False, weighting=1):
+    def fit_train(self, epoch, weighting=1):
         self.train()
         print(f"\nEpoch: {epoch+1:d} {datetime.datetime.now()}")
         train_loss = []
@@ -205,7 +204,7 @@ class VAE(nn.Module):
             self.optimizer.zero_grad()
             inputs = inputs.to(self.device).type("torch.cuda.FloatTensor")
             recon_batch, mu, logvar = self(inputs)
-            loss = self.loss_function(recon_batch, inputs, mu, logvar, not no_variational, weighting)
+            loss = self.loss_function(recon_batch, inputs, mu, logvar, weighting)
             loss.backward()
             wandb.log({"train_loss": loss})
             self.optimizer.step()
@@ -216,7 +215,7 @@ class VAE(nn.Module):
         print(f"Epoch {epoch + 1:d} | End of Epoch Train Loss: {loss.item()}")
         wandb.log({"End of Epoch Loss": loss.item()})
 
-    def test(self, epoch, out_recon_folder, no_variational=False, weighting=1):
+    def test(self, epoch, out_recon_folder, weighting=1):
         if not os.path.exists(f"{self.model_name}/{out_recon_folder}"):
             os.mkdir(f"{self.model_name}/{out_recon_folder}")
         # self.train()
@@ -227,7 +226,7 @@ class VAE(nn.Module):
             for batch_idx, (inputs, _, _, _) in enumerate(self.val_loader):
                 inputs = inputs.to(self.device).type("torch.cuda.FloatTensor")
                 recon_batch, mu, logvar = self(inputs)
-                loss = self.loss_function(recon_batch, inputs, mu, logvar, not no_variational, weighting).item()
+                loss = self.loss_function(recon_batch, inputs, mu, logvar, weighting).item()
                 val_loss += loss
                 samples_cnt += 1
                 if batch_idx == 0:
@@ -262,12 +261,10 @@ class VAE(nn.Module):
 def get_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--out_weights_file", type=str, default="vae_weights.pt")
-    parser.add_argument("--in_weights_file", type=str, default="vae_weights.pt")
     parser.add_argument("--out_recon_folder", type=str, default="test_recons")
     parser.add_argument("--in_trajs_file", type=str)
     parser.add_argument("--n_latent_features", type=int, default=32)
-    parser.add_argument("--no_variational", action="store_true")
-    parser.add_argument("--weighting", type=float, default=1.0)
+    parser.add_argument("--weighting", type=float, default=0.5)
     args = parser.parse_args()
     return args
 
@@ -277,10 +274,10 @@ def main():
     net = VAE("latteart-recon", args.in_trajs_file, args.out_weights_file, args.n_latent_features)
     net.init_model()
     for i in range(15):
-        net.fit_train(i, args.no_variational, args.weighting)
+        net.fit_train(i, args.weighting)
         torch.save(net.state_dict(), args.out_weights_file)
         with torch.no_grad():
-            net.test(i, args.out_recon_folder, args.no_variational, args.weighting)
+            net.test(i, args.out_recon_folder, args.weighting)
             torch.cuda.empty_cache()
     # net.save_history()
 

@@ -58,7 +58,7 @@ class Bodies:
         used=False,
         euler=(0.0, 0.0, 0.0),
     ):
-
+        print(f"color: {color}")
         if color is not None:
             body_color = color
         else:

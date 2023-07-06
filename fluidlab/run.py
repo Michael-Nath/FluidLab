@@ -1,12 +1,15 @@
 import os
+import cv2
 import gym
 import torch
 import random
 import argparse
 import numpy as np
 
-import fluidlab.envs
-from fluidlab.envs.fluid_env import FluidEnv
+from fluidlab.envs.latteart_env import LatteArtEnv
+from fluidlab.envs.pouring_env import PouringEnv
+from fluidlab.envs.spreading_env import SpreadingEnv
+from fluidlab.configs.macros import *
 from fluidlab.utils.logger import Logger
 from fluidlab.optimizer.solver import (
     solve_policy,
@@ -35,24 +38,20 @@ def get_args():
     parser.add_argument("--out_ds", type=str, default="trajs.hdf5")
     parser.add_argument("--start_iter", type=int, default=0)
     parser.add_argument("--test", action="store_true")
+    parser.add_argument("--beta", type=float, default="0.85")
     parser.add_argument("--gcbc_type", default="gcbc")
-    parser.add_argument(
-        "--in_weights_file",
-        type=str,
-        default=None
-    )
+    parser.add_argument("--in_weights_file", type=str, default=None)
     parser.add_argument(
         "--eval_trajs_file", type=str, default="eval_trajs/eval_trajs_0000_0049_%d.hdf5"
     )
-    parser.add_argument(
-        "--roll_trajs_file", type=str, default=None
-    )
-    parser.add_argument(
-        "--in_vae_weights", type=str, default=None
-    )
+    parser.add_argument("--roll_trajs_file", type=str, default=None)
+    parser.add_argument("--in_vae_weights", type=str, default=None)
     parser.add_argument("--train_trajs_folder", type=str, default="trajs_no_padded_acs")
     parser.add_argument("--out_weights_file", type=str, default="dummy_weights.pt")
     parser.add_argument("--lookahead_amnt", type=int, default=1)
+    parser.add_argument("--base", type=float, default=0)
+    parser.add_argument("--inj", type=float, default=0)
+    parser.add_argument("--phys", type=str)
     args = parser.parse_args()
 
     return args
@@ -82,7 +81,7 @@ def main():
                 loss_type="diff",
                 renderer_type=args.renderer_type,
             )
-        record_target(env, path=args.path, user_input=args.user_input)
+        record_target(env, exp_name=args.path, path="demo", user_input=args.user_input)
     elif args.replay_target:
         if cfg is not None:
             env = gym.make(
@@ -139,7 +138,7 @@ def main():
             )
         logger = Logger(args.exp_name, args.out_ds)
         gen_trajs_from_policy(
-            env, logger, cfg.SOLVER, args.n_trajs, args.start_iter, args.test
+            env, logger, cfg.SOLVER, args.n_trajs, args.start_iter, args.beta, args.test
         )
     else:
         logger = Logger(args.exp_name)
@@ -184,7 +183,7 @@ def main2():
         args.eval_trajs_file,
         args.lookahead_amnt,
         agent_type=args.gcbc_type,
-        in_vae_weights=args.in_vae_weights
+        in_vae_weights=args.in_vae_weights,
     )
 
 
@@ -223,7 +222,107 @@ def main3():
     )
 
 
+# testing only the env building
+def main4():
+    args = get_args()
+    if args.cfg_file is not None:
+        cfg = load_config(args.cfg_file)
+    logger = Logger(args.exp_name, args.out_ds)
+    if cfg is not None:
+        # env = gym.make(
+        #     cfg.EXP.env_name,
+        #     seed=cfg.EXP.seed,
+        #     loss=False,
+        #     loss_type="diff",
+        #     renderer_type=args.renderer_type,
+        # )
+        pass
+    else:
+        # env = gym.make(
+        #     args.env_name,
+        #     seed=args.seed,
+        #     loss=False,
+        #     loss_type="diff",
+        #     renderer_type=args.renderer_type,
+        # )
+        pass
+    if args.visc:
+        MU[MILK] = args.inj
+        MU[COFFEE] = args.base
+        MU[ICECREAM] = args.inj
+        env = gym.make(
+            cfg.EXP.env_name,
+            seed=cfg.EXP.seed,
+            loss=False,
+            loss_type="diff",
+            renderer_type=args.renderer_type,
+        )
+        record_target(
+            env,
+            exp_name=args.path,
+            path=f"visc_base_{args.base:.2f}_visc_inj_{args.inj:.2f}",
+            user_input=False,
+        )
+    if args.lamda:
+        LAMDA[MILK] = args.inj
+        LAMDA[ICECREAM] = args.inj
+        LAMDA[COFFEE] = args.base
+        env = gym.make(
+            cfg.EXP.env_name,
+            seed=cfg.EXP.seed,
+            loss=False,
+            loss_type="diff",
+            renderer_type=args.renderer_type,
+        )
+        record_target(
+            env,
+            exp_name=args.path,
+            path=f"lambda_base_{args.base:.2f}_lambda_inj_{args.inj:.2f}",
+            user_input=False,
+        )
+
+
+def main5():
+    args = get_args()
+    if args.cfg_file is not None:
+        cfg = load_config(args.cfg_file)
+    logger = Logger(args.exp_name, args.out_ds)     
+    if args.phys == "rho":
+        RHO[WATER] = args.base
+        RHO[MILK] = args.inj
+    elif args.phys == "lambda":
+        LAMDA[WATER] = args.base
+        LAMDA[MILK] = args.inj
+    elif args.phys == "mu":
+        MU[WATER] = args.base
+        MU[MILK] = args.inj
+    env = PouringEnv(None, False, "diff")
+    record_target(
+           env,
+           exp_name=args.path,
+           path=f"{args.phys}_base_{args.base:.2f}_{args.phys}_inj_{args.inj:.2f}",
+           user_input=False,
+        )   
+
+def main6():
+    args = get_args()
+    if args.cfg_file is not None:
+        cfg = load_config(args.cfg_file)
+    logger = Logger(args.exp_name, args.out_ds)
+    MU[WATER] = -2
+    env = SpreadingEnv(None, loss=False)
+    record_target(
+        env,
+        exp_name=args.path,
+        path=f"demo",
+        user_input=False,
+    ) 
+
 if __name__ == "__main__":
     # main()
-    main2()
+    # main2()
     # main3()
+    # breakpoint()
+    # main4()
+    # main5()
+    main6()

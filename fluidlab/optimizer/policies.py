@@ -22,6 +22,15 @@ class ActionsPolicy:
     def get_action_v(self, i):
         return self.actions_v[i]
 
+class NoOpPolicy:
+    def __init__(self) -> None:
+        pass
+    def get_actions_p(self):
+        return None
+    def get_action_v(self, _):
+        return np.random.randint(-100, 100, 3) / 100
+        # return None
+
 class KeyboardPolicy:
     def __init__(self, init_p, v_lin=0.003, v_ang=0.03):
         self.actions_p = init_p
@@ -74,6 +83,20 @@ class KeyboardPolicy_wz(KeyboardPolicy):
             action_v[5] -= self.angular_v_mag
         if 'z' in self.keys_activated:
             action_v[5] += self.angular_v_mag
+        return action_v
+class DemoPouringPolicy:
+    def __init__(self, p_init, v_lin=0.003, v_ang=0.01):
+        self.linear_v_mag = v_lin
+        self.angular_v_mag = v_ang
+        self.actions_p = p_init
+        self.direction = -1
+    def get_actions_p(self):
+        return self.actions_p
+    def get_action_v(self, i):
+        action_v = np.zeros(6)
+        if i % 150 == 0:
+            self.direction *= -1
+        action_v[5] += self.direction * self.angular_v_mag
         return action_v
 
 class KeyboardPolicy_vxy(KeyboardPolicy):
@@ -152,7 +175,7 @@ class RandomGaussianPolicy:
         return self.actions_v[i]
 
 class CorrelatedNoisePolicy:
-    def __init__(self, action_dim, horizon, beta = 0.10, scale = 0.10):
+    def __init__(self, action_dim, horizon, beta = 0.85, scale = 0.10):
         self.horizon = horizon
         self.action_dim = action_dim
         self.beta = beta
@@ -162,7 +185,7 @@ class CorrelatedNoisePolicy:
         # Setup normal
         u_t = np.random.multivariate_normal(np.full(self.action_dim, 0.0), self.cov)
         # Calculate noise term
-        self.n_t = self.beta * u_t + (1 - self.beta) * self.n_t
+        self.n_t = (1 - self.beta) * u_t + self.beta * self.n_t
         # This noise represents our action because we are working with random action sequences.
         # However, we want our sampled actions to be smoothly correlated.
         return self.n_t
@@ -424,7 +447,6 @@ class CirculationPolicy(TrainablePolicy):
 class PouringPolicy(TrainablePolicy):
     def __init__(self, *args, **kwargs):
         super(PouringPolicy, self).__init__(*args, **kwargs)
-
 
 class TransportingPolicy(TrainablePolicy):
     def __init__(self, *args, **kwargs):

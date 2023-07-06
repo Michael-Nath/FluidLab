@@ -139,7 +139,7 @@ class MPMSimulator:
         mat        = particles['mat'].astype(np.int32)
         p_rho      = particles['rho'].astype(DTYPE_NP)
         body_id    = particles['body_id'].astype(np.int32)
-        
+        print(mat) 
         mu         = np.array([MU[mat_i] for mat_i in mat]).astype(DTYPE_NP)
         lam        = np.array([LAMDA[mat_i] for mat_i in mat]).astype(DTYPE_NP)
         mat_cls    = np.array([MAT_CLASS[mat_i] for mat_i in mat]).astype(np.int32)

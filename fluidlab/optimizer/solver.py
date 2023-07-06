@@ -31,10 +31,10 @@ class Solver:
         self.agent = self.agent.to(self.device)
         # self.agent = None
 
-    def create_trajs(self, iteration, test=False):
+    def create_trajs(self, iteration,beta,test=False):
         taichi_env = self.env.taichi_env
         horizon = self.env.horizon
-        policy = self.env.random_policy(self.cfg.init_range)
+        policy = self.env.random_policy(self.cfg.init_range, beta)
         horizon_action = self.env.horizon_action
         init_state = taichi_env.get_state()
         taichi_env.set_state(**init_state)
@@ -275,12 +275,12 @@ def solve_policy(env, logger, cfg):
     solver.solve()
 
 
-def gen_trajs_from_policy(env, logger, cfg, n_trajs, start_iter, test):
+def gen_trajs_from_policy(env, logger, cfg, n_trajs, start_iter, test, beta):
     for i in range(n_trajs):
         env.reset()
         solver = Solver(env, logger, cfg)
         print(test)
-        solver.create_trajs(start_iter + i, test)
+        solver.create_trajs(start_iter + i, test, beta)
         print(
             f"Finished creating trajectory {i + 1} at {datetime.now().strftime('%H:%M:%S')}"
         )

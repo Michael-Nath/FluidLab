@@ -1,4 +1,5 @@
 import os
+import cv2
 import gym
 import numpy as np
 from gym.spaces import Box

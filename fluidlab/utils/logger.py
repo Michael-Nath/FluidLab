@@ -17,6 +17,14 @@ class SummaryWriter:
         for key in info:
             self.writer.add_scalar(key, info[key], iteration)
 
+class DebugWriter:
+    def __init__(self, folder):
+        self.dir = os.path.join(get_src_dir(), "..", "debug", folder)
+        os.makedirs(self.dir, exist_ok=True)
+    def write(self, img, name):
+        img_path = os.path.join(self.dir, name)
+        cv2.imwrite(img_path, img[:, :, ::-1])
+
 class ImageWriter:
     def __init__(self, exp_name):
         self.dir = os.path.join(get_src_dir(), '..', 'logs', 'goal_traj', exp_name)
@@ -56,11 +64,12 @@ class TrajectoryWriter:
                 print('\t' * num_indents + x)
             f.visit(p)
 class Logger:
-    def __init__(self, exp_name, output_ds):
+    def __init__(self, exp_name, output_ds, debug_folder="scenes"):
         self.exp_name = exp_name
         self.summary_writer = SummaryWriter(exp_name)
         self.image_writer = ImageWriter(exp_name)
         self.traj_writer = TrajectoryWriter(exp_name, output_ds)
+        self.debug_writer = DebugWriter(debug_folder)
         self.last_step_t = time()
     
     def resize_img(self, img):
@@ -70,6 +79,8 @@ class Logger:
     def write_img(self, img, iteration, step):
         img = self.resize_img(img)
         self.image_writer.write(img, iteration, step)
+    def write_img_debug(self, img):
+        self.debug_writer.write(img)
     def write_traj(self, action, sim_state, img_obs, iteration: int, t: int):
         img = self.resize_img(img_obs)
         self.traj_writer.write(action, sim_state, img, iteration, t)

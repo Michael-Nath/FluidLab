@@ -43,14 +43,15 @@ class LatteArtEnv(FluidEnv):
         self.agent = self.taichi_env.agent
 
     def setup_statics(self):
-        self.taichi_env.add_static(
-            file='cup.obj',
-            pos=(0.63, 0.42, 0.5),
-            euler=(0.0, 0.0, 0.0),
-            scale=(1.2, 1.2, 1.2),
-            material=CUP,
-            has_dynamics=False,
-        )
+        # self.taichi_env.add_static(
+        #     file='cup.obj',
+        #     pos=(0.63, 0.42, 0.5),
+        #     euler=(0.0, 0.0, 0.0),
+        #     scale=(1.2, 1.2, 1.2),
+        #     material=CUP,
+        #     has_dynamics=False,
+        # )
+        pass
 
     def setup_bodies(self):
         self.taichi_env.add_body(
@@ -142,9 +143,9 @@ class LatteArtEnv(FluidEnv):
 
     def trainable_policy(self, optim_cfg, init_range):
         return LatteArtPolicy(optim_cfg, init_range, self.agent.action_dim, self.horizon_action, self.action_range)
-    def random_policy(self):
+    def random_policy(self, init_range, beta):
         # return RandomGaussianPolicy(init_range, self.agent.action_dim, self.horizon_action)
-        return CorrelatedNoisePolicy(self.agent.action_dim, self.horizon_action)
+        return CorrelatedNoisePolicy(self.agent.action_dim, self.horizon_action, beta=beta)
     def bc_policy(self, goal_img_obs, weights_file, agent_type):
         assert weights_file is not None
         return LoadedGCBCPolicy(self.agent.action_dim, goal_img_obs, weights_file, agent_type)
